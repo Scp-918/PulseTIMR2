@@ -52,8 +52,13 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+static volatile uint32_t g_master_cmp2_isr_count = 0;
 static volatile uint32_t g_master_cmp4_isr_count = 0;
+static volatile uint32_t g_master_upd_isr_count = 0;
+
+static uint32_t g_last_cmp2_total = 0;
 static uint32_t g_last_cmp4_total = 0;
+static uint32_t g_last_upd_total = 0;
 static uint32_t g_last_print_tick = 0;
 static char g_usb_msg[96];
 
@@ -112,13 +117,28 @@ int main(void)
 
   HAL_Delay(200);
 
-  // 启动 HRTIM master 计数器并使能中断（含 MCMP4）
+  // 启动 HRTIM master 计数器并使能中断（MCMP2/MCMP4/MUPD）
   if (HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER) != HAL_OK)
   {
     Error_Handler();
   }
 
-  (void)snprintf(g_usb_msg, sizeof(g_usb_msg), "HRTIM master start (MCMP4 IRQ)\r\n");
+  __HAL_HRTIM_MASTER_CLEAR_IT(&hhrtim1,
+                              HRTIM_MASTER_IT_MCMP2 |
+                              HRTIM_MASTER_IT_MCMP4 |
+                              HRTIM_MASTER_IT_MUPD |
+                              HRTIM_MASTER_IT_MREP |
+                              HRTIM_MASTER_IT_SYNC);
+  NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
+
+  __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1,
+                               HRTIM_MASTER_IT_MCMP2 |
+                               HRTIM_MASTER_IT_MCMP4 |
+                               HRTIM_MASTER_IT_MUPD);
+  HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
+  __enable_irq();
+
+  (void)snprintf(g_usb_msg, sizeof(g_usb_msg), "HRTIM master start\r\n");
   (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)strlen(g_usb_msg));
 
   g_last_print_tick = HAL_GetTick();
@@ -134,16 +154,33 @@ int main(void)
     uint32_t now = HAL_GetTick();
     if ((now - g_last_print_tick) >= 1000U)
     {
-      uint32_t total = g_master_cmp4_isr_count;
-      uint32_t per_sec = total - g_last_cmp4_total;
-      g_last_cmp4_total = total;
+      uint32_t total_cmp2;
+      uint32_t total_cmp4;
+      uint32_t total_upd;
+
+      __disable_irq();
+      total_cmp2 = g_master_cmp2_isr_count;
+      total_cmp4 = g_master_cmp4_isr_count;
+      total_upd = g_master_upd_isr_count;
+      __enable_irq();
+
+      uint32_t per_sec_cmp2 = total_cmp2 - g_last_cmp2_total;
+      uint32_t per_sec_cmp4 = total_cmp4 - g_last_cmp4_total;
+      uint32_t per_sec_upd = total_upd - g_last_upd_total;
+      g_last_cmp2_total = total_cmp2;
+      g_last_cmp4_total = total_cmp4;
+      g_last_upd_total = total_upd;
       g_last_print_tick = now;
 
       int len = snprintf(g_usb_msg,
                          sizeof(g_usb_msg),
-                         "MCMP4 IRQ/s=%lu, total=%lu\r\n",
-                         (unsigned long)per_sec,
-                         (unsigned long)total);
+                         "MCMP2:%lu/s(%lu) MCMP4:%lu/s(%lu) MUPD:%lu/s(%lu)\r\n",
+                         (unsigned long)per_sec_cmp2,
+                         (unsigned long)total_cmp2,
+                         (unsigned long)per_sec_cmp4,
+                         (unsigned long)total_cmp4,
+                         (unsigned long)per_sec_upd,
+                         (unsigned long)total_upd);
       if (len > 0)
       {
         (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)len);
@@ -200,11 +237,27 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_HRTIM_Compare2EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
+{
+  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_MASTER))
+  {
+    g_master_cmp2_isr_count++;
+  }
+}
+
 void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
   if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_MASTER))
   {
     g_master_cmp4_isr_count++;
+  }
+}
+
+void HAL_HRTIM_RegistersUpdateCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
+{
+  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_MASTER))
+  {
+    g_master_upd_isr_count++;
   }
 }
 
