@@ -43,7 +43,8 @@ void MX_HRTIM1_Init(void)
   /* USER CODE END HRTIM1_Init 1 */
   hhrtim1.Instance = HRTIM1;
   hhrtim1.Init.HRTIMInterruptResquests = HRTIM_IT_NONE;
-  hhrtim1.Init.SyncOptions = HRTIM_SYNCOPTION_NONE;
+  hhrtim1.Init.SyncOptions = HRTIM_SYNCOPTION_SLAVE;
+  hhrtim1.Init.SyncInputSource = HRTIM_SYNCINPUTSOURCE_INTERNALEVENT;
   if (HAL_HRTIM_Init(&hhrtim1) != HAL_OK)
   {
     Error_Handler();
@@ -51,20 +52,20 @@ void MX_HRTIM1_Init(void)
   pTimeBaseCfg.Period = 62500;
   pTimeBaseCfg.RepetitionCounter = 0x00;
   pTimeBaseCfg.PrescalerRatio = HRTIM_PRESCALERRATIO_DIV4;
-  pTimeBaseCfg.Mode = HRTIM_MODE_CONTINUOUS;
+  pTimeBaseCfg.Mode = HRTIM_MODE_SINGLESHOT_RETRIGGERABLE;
   if (HAL_HRTIM_TimeBaseConfig(&hhrtim1, HRTIM_TIMERINDEX_MASTER, &pTimeBaseCfg) != HAL_OK)
   {
     Error_Handler();
   }
-  pTimerCfg.InterruptRequests = HRTIM_MASTER_IT_MCMP4|HRTIM_MASTER_IT_MUPD
-                              |HRTIM_MASTER_IT_MCMP2;
+  pTimerCfg.InterruptRequests = HRTIM_MASTER_IT_MCMP4|HRTIM_MASTER_IT_MCMP2
+                              |HRTIM_MASTER_IT_MCMP1;
   pTimerCfg.DMARequests = HRTIM_MASTER_DMA_NONE;
   pTimerCfg.DMASrcAddress = 0x0000;
   pTimerCfg.DMADstAddress = 0x0000;
   pTimerCfg.DMASize = 0x1;
   pTimerCfg.HalfModeEnable = HRTIM_HALFMODE_DISABLED;
   pTimerCfg.InterleavedMode = HRTIM_INTERLEAVED_MODE_DISABLED;
-  pTimerCfg.StartOnSync = HRTIM_SYNCSTART_DISABLED;
+  pTimerCfg.StartOnSync = HRTIM_SYNCSTART_ENABLED;
   pTimerCfg.ResetOnSync = HRTIM_SYNCRESET_DISABLED;
   pTimerCfg.DACSynchro = HRTIM_DACSYNC_NONE;
   pTimerCfg.PreloadEnable = HRTIM_PRELOAD_ENABLED;
