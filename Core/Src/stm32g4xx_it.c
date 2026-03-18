@@ -334,6 +334,20 @@ void HRTIM1_Master_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles HRTIM timer A global interrupt.
+  */
+void HRTIM1_TIMA_IRQHandler(void)
+{
+  /* USER CODE BEGIN HRTIM1_TIMA_IRQn 0 */
+
+  /* USER CODE END HRTIM1_TIMA_IRQn 0 */
+  HAL_HRTIM_IRQHandler(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A);
+  /* USER CODE BEGIN HRTIM1_TIMA_IRQn 1 */
+
+  /* USER CODE END HRTIM1_TIMA_IRQn 1 */
+}
+
+/**
   * @brief This function handles I2C3 event interrupt / I2C3 wake-up interrupt through EXTI line 27.
   */
 void I2C3_EV_IRQHandler(void)
