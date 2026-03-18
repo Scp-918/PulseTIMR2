@@ -28,6 +28,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "usbd_cdc_if.h"
+#include <stdio.h>
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -49,6 +52,10 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+static volatile uint32_t g_master_cmp4_isr_count = 0;
+static uint32_t g_last_cmp4_total = 0;
+static uint32_t g_last_print_tick = 0;
+static char g_usb_msg[96];
 
 /* USER CODE END PV */
 
@@ -91,16 +98,30 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_HRTIM1_Init();
-  MX_I2C3_Init();
-  MX_SPI1_Init();
-  MX_SPI3_Init();
-  MX_USART1_UART_Init();
-  MX_USB_Device_Init();
+  // MX_GPIO_Init();
+  // MX_DMA_Init();
+  // MX_HRTIM1_Init();
+  // MX_I2C3_Init();
+  // MX_SPI1_Init();
+  // MX_SPI3_Init();
+  // MX_USART1_UART_Init();
+  // MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
+  MX_USB_Device_Init();
+  MX_HRTIM1_Init();
 
+  HAL_Delay(200);
+
+  // 启动 HRTIM master 计数器并使能中断（含 MCMP4）
+  if (HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  (void)snprintf(g_usb_msg, sizeof(g_usb_msg), "HRTIM master start (MCMP4 IRQ)\r\n");
+  (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+
+  g_last_print_tick = HAL_GetTick();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -110,6 +131,24 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    uint32_t now = HAL_GetTick();
+    if ((now - g_last_print_tick) >= 1000U)
+    {
+      uint32_t total = g_master_cmp4_isr_count;
+      uint32_t per_sec = total - g_last_cmp4_total;
+      g_last_cmp4_total = total;
+      g_last_print_tick = now;
+
+      int len = snprintf(g_usb_msg,
+                         sizeof(g_usb_msg),
+                         "MCMP4 IRQ/s=%lu, total=%lu\r\n",
+                         (unsigned long)per_sec,
+                         (unsigned long)total);
+      if (len > 0)
+      {
+        (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)len);
+      }
+    }
   }
   /* USER CODE END 3 */
 }
@@ -161,6 +200,13 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
+{
+  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_MASTER))
+  {
+    g_master_cmp4_isr_count++;
+  }
+}
 
 /* USER CODE END 4 */
 

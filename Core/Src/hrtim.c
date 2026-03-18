@@ -56,7 +56,8 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pTimerCfg.InterruptRequests = HRTIM_MASTER_IT_MCMP4;
+  pTimerCfg.InterruptRequests = HRTIM_MASTER_IT_MCMP4|HRTIM_MASTER_IT_MUPD
+                              |HRTIM_MASTER_IT_MCMP2;
   pTimerCfg.DMARequests = HRTIM_MASTER_DMA_NONE;
   pTimerCfg.DMASrcAddress = 0x0000;
   pTimerCfg.DMADstAddress = 0x0000;
