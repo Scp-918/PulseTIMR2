@@ -44,7 +44,7 @@
 			{
 				"command" : 2,
 				"file" : 1,
-				"line" : 118,
+				"line" : 121,
 				"parent" : 3
 			},
 			{
@@ -62,7 +62,7 @@
 			{
 				"command" : 4,
 				"file" : 1,
-				"line" : 112,
+				"line" : 115,
 				"parent" : 3
 			}
 		]
@@ -160,7 +160,9 @@
 				12,
 				13,
 				14,
-				15
+				15,
+				16,
+				17
 			]
 		},
 		{
@@ -231,7 +233,7 @@
 			"language" : "ASM",
 			"sourceIndexes" : 
 			[
-				16
+				18
 			]
 		}
 	],
@@ -310,22 +312,22 @@
 				12,
 				13,
 				14,
-				15
+				15,
+				16,
+				17
 			]
 		},
 		{
 			"name" : "",
 			"sourceIndexes" : 
 			[
-				16
+				18
 			]
 		},
 		{
 			"name" : "Object Libraries",
 			"sourceIndexes" : 
 			[
-				17,
-				18,
 				19,
 				20,
 				21,
@@ -353,7 +355,9 @@
 				43,
 				44,
 				45,
-				46
+				46,
+				47,
+				48
 			]
 		}
 	],
@@ -381,6 +385,12 @@
 			"backtrace" : 7,
 			"compileGroupIndex" : 0,
 			"path" : "USB_Device/Target/usbd_conf.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 7,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/LSM9DS1.c",
 			"sourceGroupIndex" : 0
 		},
 		{
@@ -429,6 +439,12 @@
 			"backtrace" : 7,
 			"compileGroupIndex" : 0,
 			"path" : "Core/Src/usart.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 7,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/ble_comm.c",
 			"sourceGroupIndex" : 0
 		},
 		{

@@ -5273,6 +5273,206 @@ Discarded input sections
  .debug_macro   0x00000000       0x5f CMakeFiles/PulseDrive.dir/USB_Device/Target/usbd_conf.c.obj
  .debug_macro   0x00000000      0x1ef CMakeFiles/PulseDrive.dir/USB_Device/Target/usbd_conf.c.obj
  .debug_macro   0x00000000       0x95 CMakeFiles/PulseDrive.dir/USB_Device/Target/usbd_conf.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text          0x00000000        0x0 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .data          0x00000000        0x0 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .bss           0x00000000        0x0 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .bss.s_spi_tx_buf
+                0x00000000        0xd CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .bss.s_spi_rx_buf
+                0x00000000        0xd CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .bss.s_dma_busy
+                0x00000000        0x1 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .bss.s_latest_raw
+                0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .bss.s_bound_frame
+                0x00000000        0x4 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .bss.s_runtime
+                0x00000000       0x10 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .data.s_ctrl_reg1_g_shadow
+                0x00000000        0x1 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .data.s_ctrl_reg6_xl_shadow
+                0x00000000        0x1 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .data.s_accel_sens_mg_lsb
+                0x00000000        0x4 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .data.s_gyro_sens_mdps_lsb
+                0x00000000        0x4 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_CS_High
+                0x00000000       0x18 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_CS_Low
+                0x00000000       0x18 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_GPIO_InitCS
+                0x00000000       0x5c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_WriteReg_Blocking
+                0x00000000       0x50 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_ReadReg_Blocking
+                0x00000000       0x64 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_ReadWhoAmI
+                0x00000000       0x1a CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_AssembleInt16LE
+                0x00000000       0x2c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_UpdateSensitivity
+                0x00000000       0xac CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_ProcessDmaRxData
+                0x00000000       0xe4 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_Init
+                0x00000000      0x124 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_AttachFrameBuffer
+                0x00000000       0x20 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_TriggerRead_IT
+                0x00000000       0xac CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_SPI_TxRxCpltHandler
+                0x00000000       0x44 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_SPI_ErrorHandler
+                0x00000000       0x40 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_SetFullScale
+                0x00000000      0x15c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_GetLatestRaw
+                0x00000000       0x30 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_AccelRawToG
+                0x00000000       0x44 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_GyroRawToDps
+                0x00000000       0x44 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.LSM9DS1_GetRuntimeState
+                0x00000000       0x14 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.HAL_SPI_TxRxCpltCallback
+                0x00000000       0x16 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .text.HAL_SPI_ErrorCallback
+                0x00000000       0x16 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_info    0x00000000     0x1154 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_abbrev  0x00000000      0x336 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_aranges
+                0x00000000       0xc0 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_rnglists
+                0x00000000       0x90 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x337 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0xad8 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x173 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x2e CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x28 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x22 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x8e CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x51 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x103 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x6a CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x1df CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x1c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x22 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0xfb CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000     0x1011 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x11f CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000    0x18b8c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x6d CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000     0x3558 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x190 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x5c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000     0x171f CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x600 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x1b6 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x34a CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x53c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x18b CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x43 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x23d CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x211 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x45c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x11c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000     0x20a8 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x22c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x61 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0xa5 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x73 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x22d CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x122 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x3d1 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x2fe CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0xc0b CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x718 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x693 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0xa6 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x358 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x22 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x196 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x74 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x2a CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x3c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x34 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x370 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x16 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x4a CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x34 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x10 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x58 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000      0x1e5 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x10 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x3c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_macro   0x00000000       0x20 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_line    0x00000000      0xddb CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_str     0x00000000   0x11ac68 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .comment       0x00000000       0x44 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .debug_frame   0x00000000      0x30c CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
+ .ARM.attributes
+                0x00000000       0x34 CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
  .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/main.c.obj
  .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/main.c.obj
  .group         0x00000000        0xc CMakeFiles/PulseDrive.dir/Core/Src/main.c.obj
@@ -6800,6 +7000,7 @@ LOAD CMakeFiles/PulseDrive.dir/USB_Device/App/usb_device.c.obj
 LOAD CMakeFiles/PulseDrive.dir/USB_Device/App/usbd_desc.c.obj
 LOAD CMakeFiles/PulseDrive.dir/USB_Device/App/usbd_cdc_if.c.obj
 LOAD CMakeFiles/PulseDrive.dir/USB_Device/Target/usbd_conf.c.obj
+LOAD CMakeFiles/PulseDrive.dir/Core/Src/LSM9DS1.c.obj
 LOAD CMakeFiles/PulseDrive.dir/Core/Src/main.c.obj
 LOAD CMakeFiles/PulseDrive.dir/Core/Src/gpio.c.obj
 LOAD CMakeFiles/PulseDrive.dir/Core/Src/dma.c.obj
