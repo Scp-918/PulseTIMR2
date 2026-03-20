@@ -55,6 +55,7 @@
 /* USER CODE BEGIN PV */
 static volatile uint32_t g_tim1_isr_count = 0;
 static volatile uint32_t g_master_cmp4_isr_count = 0;
+static volatile uint32_t g_master_cmp4_flag_count = 0;
 static volatile uint32_t g_tima_rep_isr_count = 0;
 static volatile uint32_t g_tima_cmp1_isr_count = 0;
 
@@ -62,7 +63,6 @@ static uint32_t g_last_tim1_total = 0;
 static uint32_t g_last_master_cmp4_total = 0;
 static uint32_t g_last_tima_rep_total = 0;
 static uint32_t g_last_tima_cmp1_total = 0;
-static uint32_t g_last_print_tick = 0;
 static char g_usb_msg[128];
 
 /* USER CODE END PV */
@@ -120,7 +120,10 @@ int main(void)
   MX_USB_Device_Init();
   MX_TIM1_Init();
 
-  HAL_Delay(2000);
+  HAL_Delay(5000);
+  (void)snprintf(g_usb_msg, sizeof(g_usb_msg), "USB start\r\n");
+  (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+  HAL_Delay(5000);
 
   // 启动 HRTIM master/timerA 计数器，等待 TIM1 TRGO(sync) 激活 master
   if (HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A) != HAL_OK)
@@ -156,8 +159,6 @@ int main(void)
 
   (void)snprintf(g_usb_msg, sizeof(g_usb_msg), "TIM1->HRTIM(M+TA) sync start\r\n");
   (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)strlen(g_usb_msg));
-
-  g_last_print_tick = HAL_GetTick();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -167,21 +168,26 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    uint32_t now = HAL_GetTick();
-    if ((now - g_last_print_tick) >= 1000U)
-    {
-      uint32_t total_tim1;
-      uint32_t total_master_cmp4;
-      uint32_t total_tima_rep;
-      uint32_t total_tima_cmp1;
+    uint32_t should_print = 0;
+    uint32_t total_tim1 = 0;
+    uint32_t total_master_cmp4 = 0;
+    uint32_t total_tima_rep = 0;
+    uint32_t total_tima_cmp1 = 0;
 
-      __disable_irq();
+    __disable_irq();
+    if (g_master_cmp4_flag_count >= 400U)
+    {
+      g_master_cmp4_flag_count -= 400U;
+      should_print = 1U;
       total_tim1 = g_tim1_isr_count;
       total_master_cmp4 = g_master_cmp4_isr_count;
       total_tima_rep = g_tima_rep_isr_count;
       total_tima_cmp1 = g_tima_cmp1_isr_count;
-      __enable_irq();
+    }
+    __enable_irq();
 
+    if (should_print != 0U)
+    {
       uint32_t per_sec_tim1 = total_tim1 - g_last_tim1_total;
       uint32_t per_sec_master_cmp4 = total_master_cmp4 - g_last_master_cmp4_total;
       uint32_t per_sec_tima_rep = total_tima_rep - g_last_tima_rep_total;
@@ -190,7 +196,6 @@ int main(void)
       g_last_master_cmp4_total = total_master_cmp4;
       g_last_tima_rep_total = total_tima_rep;
       g_last_tima_cmp1_total = total_tima_cmp1;
-      g_last_print_tick = now;
 
       int len = snprintf(g_usb_msg,
                          sizeof(g_usb_msg),
@@ -272,6 +277,7 @@ void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
   if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_MASTER))
   {
     g_master_cmp4_isr_count++;
+    g_master_cmp4_flag_count++;
   }
 }
 

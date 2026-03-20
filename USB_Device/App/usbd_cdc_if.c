@@ -145,15 +145,18 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *pbuf, uint32_t *Len, uint8_t epnum);
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_DECLARATION */
 uint8_t CDC_Transmit_FS2(uint8_t* Buf, uint16_t Len)
 {
-  // 1. 进入临界区：关闭中断
-  // __disable_irq();
   uint8_t result = USBD_OK;
+  uint32_t primask;
   /* USER CODE BEGIN 7 */
+  primask = __get_PRIMASK();
+  __disable_irq();
+
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
   
   // 1. 检查参数
-  if (hcdc == NULL || hcdc->TxState != 0 && UserTxBufBusy == 0) {
-      return USBD_BUSY;
+  if (hcdc == NULL || (hcdc->TxState != 0 && UserTxBufBusy == 0)) {
+      result = USBD_BUSY;
+      goto exit;
   }
 
   // 2. 将用户数据填入环形缓冲区
@@ -167,7 +170,8 @@ uint8_t CDC_Transmit_FS2(uint8_t* Buf, uint16_t Len)
       
       // 检查缓冲区溢出（可选：如果追上输出指针，则丢弃或返回错误）
       if (UserTxBufPtrIn == UserTxBufPtrOut) {
-          return USBD_FAIL; // 缓冲区满
+          result = USBD_FAIL; // 缓冲区满
+          goto exit;
       }
   }
 
@@ -183,7 +187,7 @@ uint8_t CDC_Transmit_FS2(uint8_t* Buf, uint16_t Len)
           size_to_send = APP_TX_DATA_SIZE - UserTxBufPtrOut;
       } else {
           // 指针相等，无数据
-          return USBD_OK;
+          goto exit;
       }
 
       // 设置 USB 发送缓冲区指针指向环形缓冲区的当前读取位置
@@ -193,8 +197,8 @@ uint8_t CDC_Transmit_FS2(uint8_t* Buf, uint16_t Len)
       UserTxBufBusy = 1;
       result = USBD_CDC_TransmitPacket(&hUsbDeviceFS);
   }
-  // 2. 退出临界区：恢复中断
-  // __enable_irq();
+exit:
+  __set_PRIMASK(primask);
   /* USER CODE END 7 */
   return result;
 }
@@ -444,12 +448,21 @@ uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len)
 static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 {
   uint8_t result = USBD_OK;
+  uint32_t primask;
   /* USER CODE BEGIN 13 */
   UNUSED(Buf);
   UNUSED(Len);
   UNUSED(epnum);
 
+  primask = __get_PRIMASK();
+  __disable_irq();
+
   USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+  if (hcdc == NULL)
+  {
+    result = USBD_FAIL;
+    goto exit;
+  }
 
   // 1. 更新读出指针 (UserTxBufPtrOut)
   // 注意：此时 hcdc->TxLength 存储了上一次发送的长度
@@ -478,6 +491,8 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
       // 数据全部发完，释放忙标志
       UserTxBufBusy = 0;
   }
+exit:
+  __set_PRIMASK(primask);
   /* USER CODE END 13 */
   return result;
 }
