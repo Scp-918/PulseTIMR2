@@ -106,15 +106,15 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
-  // MX_GPIO_Init();
-  // MX_DMA_Init();
-  // MX_HRTIM1_Init();
-  // MX_I2C3_Init();
-  // MX_SPI1_Init();
-  // MX_SPI3_Init();
-  // MX_USART1_UART_Init();
-  // MX_USB_Device_Init();
-  // MX_TIM1_Init();
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_HRTIM1_Init();
+  MX_I2C3_Init();
+  MX_SPI1_Init();
+  MX_SPI3_Init();
+  MX_USART1_UART_Init();
+  MX_USB_Device_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   MX_HRTIM1_Init();
   MX_USB_Device_Init();
