@@ -119,7 +119,8 @@ int main(void)
   MX_HRTIM1_Init();
   MX_USB_Device_Init();
   MX_TIM1_Init();
-  HAL_Delay(200);
+
+  HAL_Delay(2000);
 
   // 启动 HRTIM master/timerA 计数器，等待 TIM1 TRGO(sync) 激活 master
   if (HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A) != HAL_OK)
