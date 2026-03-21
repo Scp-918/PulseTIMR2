@@ -113,7 +113,7 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pTimerCfg.InterruptRequests = HRTIM_TIM_IT_RST2|HRTIM_TIM_IT_REP;
+  pTimerCfg.InterruptRequests = HRTIM_TIM_IT_RST2;
   pTimerCfg.DMARequests = HRTIM_TIM_DMA_NONE;
   pTimerCfg.StartOnSync = HRTIM_SYNCSTART_DISABLED;
   pTimerCfg.PushPull = HRTIM_TIMPUSHPULLMODE_DISABLED;
@@ -164,8 +164,8 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pOutputCfg.SetSource = HRTIM_OUTPUTSET_RESYNC|HRTIM_OUTPUTSET_TIMCMP2
-                              |HRTIM_OUTPUTSET_TIMCMP4;
+  pOutputCfg.SetSource = HRTIM_OUTPUTSET_MASTERCMP2|HRTIM_OUTPUTSET_MASTERCMP3
+                              |HRTIM_OUTPUTSET_TIMCMP2|HRTIM_OUTPUTSET_TIMCMP4;
   pOutputCfg.ResetSource = HRTIM_OUTPUTRESET_TIMCMP1|HRTIM_OUTPUTRESET_TIMCMP3
                               |HRTIM_OUTPUTRESET_TIMPER;
   if (HAL_HRTIM_WaveformOutputConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_OUTPUT_TA2, &pOutputCfg) != HAL_OK)
