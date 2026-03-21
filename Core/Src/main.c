@@ -119,6 +119,11 @@ int main(void)
     Error_Handler();
   }
 
+  if (HAL_HRTIM_BurstModeCtl(&hhrtim1, HRTIM_BURSTMODECTL_ENABLED) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   __HAL_HRTIM_MASTER_CLEAR_IT(&hhrtim1,
                               HRTIM_MASTER_IT_MCMP4 |
                               HRTIM_MASTER_IT_MUPD |
@@ -159,9 +164,9 @@ int main(void)
     if (g_master_cmp4_isr_count >= 400U)
     {
       __disable_irq();
-      g_tim1_isr_count = 0;
+      // g_tim1_isr_count = 0;
       g_master_cmp4_isr_count = 0;
-      g_tima_cmp1_isr_count = 0;
+      // g_tima_cmp1_isr_count = 0;
       __enable_irq();
 
       // (void)snprintf(g_usb_msg,
