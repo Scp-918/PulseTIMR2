@@ -169,7 +169,10 @@ static HAL_StatusTypeDef BLE_TrySyncToTargetBaud(uint32_t current_baud)
   }
   HAL_Delay(BLE_WAKE_SETTLE_MS);
 
-  cmd_len = snprintf(cmd_set_baud, sizeof(cmd_set_baud), BLE_CMD_SET_BAUD_FMT, BLE_TARGET_BAUD);
+  cmd_len = snprintf(cmd_set_baud,
+                     sizeof(cmd_set_baud),
+                     BLE_CMD_SET_BAUD_FMT,
+                     (unsigned long)BLE_TARGET_BAUD);
   if ((cmd_len <= 0) || ((uint32_t)cmd_len >= sizeof(cmd_set_baud)))
   {
     return HAL_ERROR;
@@ -246,6 +249,22 @@ HAL_StatusTypeDef BLE_Init(void)
   ret = HAL_UART_Transmit(&huart1,
               (uint8_t *)BLE_CMD_SET_WAKE_FOREVER,
               (uint16_t)strlen(BLE_CMD_SET_WAKE_FOREVER),
+              BLE_INIT_UART_TX_TIMEOUT_MS);
+  if (ret != HAL_OK)
+  {
+    return ret;
+  }
+
+  ret = BLE_WaitResponseContains(BLE_RESP_OK, BLE_INIT_UART_RX_TIMEOUT_MS);
+  if (ret != HAL_OK)
+  {
+    return ret;
+  }
+
+  /* 步骤 5：配置发射功率为 +2.5dBm。 */
+  ret = HAL_UART_Transmit(&huart1,
+              (uint8_t *)BLE_CMD_SET_TX_POWER_MAX,
+              (uint16_t)strlen(BLE_CMD_SET_TX_POWER_MAX),
               BLE_INIT_UART_TX_TIMEOUT_MS);
   if (ret != HAL_OK)
   {

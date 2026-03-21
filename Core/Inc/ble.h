@@ -13,13 +13,13 @@ extern "C" {
  * =========================== */
 
 /* [目标波特率] 初始化成功后，MCU 与蓝牙模块都工作在该速率，用于高频数据链路。 */
-#define BLE_TARGET_BAUD                 460800U
+#define BLE_TARGET_BAUD                 115200U
 
 /* [默认波特率] 模块出厂 UART 波特率。 */
 #define BLE_DEFAULT_BAUD                19200U
 
 /* [备用波特率] 用于容错重试：当模块曾被改过波特率但未恢复出厂时尝试该速率。 */
-#define BLE_PREV_BAUD                   115200U
+#define BLE_PREV_BAUD                   460800U
 
 /* [唤醒字节个数] 发送连续 0xAA 的次数。 */
 #define BLE_WAKE_BYTES_COUNT            5U
@@ -40,6 +40,7 @@ extern "C" {
 /* [命令字符串] 透传模块采用 <...> 指令格式。 */
 #define BLE_CMD_SET_BAUD_FMT            "<ST_BAUD=%lu>"
 #define BLE_CMD_SET_WAKE_FOREVER        "<ST_WAKE=FOREVER>"
+#define BLE_CMD_SET_TX_POWER_MAX        "<ST_TX_POWER=+2.5>"
 
 /* [关键应答关键字] 只做子串匹配，兼容可能包含前后缀的应答帧。 */
 #define BLE_RESP_OK                     "ok"

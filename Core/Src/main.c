@@ -29,7 +29,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "usbd_cdc_if.h"
+#include "ble.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -61,7 +61,7 @@ static uint32_t g_last_tim1_total = 0;
 static uint32_t g_last_master_cmp4_total = 0;
 static uint32_t g_last_tima_out2_rst_total = 0;
 static uint32_t g_last_print_tick = 0;
-static char g_usb_msg[128];
+static char g_ble_msg[128];
 
 /* USER CODE END PV */
 
@@ -114,9 +114,16 @@ int main(void)
   // MX_USB_Device_Init();
   // MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USART1_UART_Init();
   MX_HRTIM1_Init();
-  MX_USB_Device_Init();
   MX_TIM1_Init();
+
+  if (BLE_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
 
   HAL_Delay(2000);
 
@@ -152,8 +159,8 @@ int main(void)
 
   __enable_irq();
 
-  (void)snprintf(g_usb_msg, sizeof(g_usb_msg), "TIM1->HRTIM(M+TA) sync start\r\n");
-  (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+  (void)snprintf(g_ble_msg, sizeof(g_ble_msg), "TIM1->HRTIM(M+TA) sync start\r\n");
+  (void)BLE_Transmit_Data_DMA((uint8_t *)g_ble_msg, (uint16_t)strlen(g_ble_msg));
 
   g_last_print_tick = HAL_GetTick();
   /* USER CODE END 2 */
@@ -186,8 +193,8 @@ int main(void)
       g_last_tima_out2_rst_total = total_tima_out2_rst;
       g_last_print_tick = now;
 
-      int len = snprintf(g_usb_msg,
-                         sizeof(g_usb_msg),
+      int len = snprintf(g_ble_msg,
+                         sizeof(g_ble_msg),
               "TIM1:%lu/s(%lu) MCMP4:%lu/s(%lu) TA_O2RST:%lu/s(%lu)\r\n",
                          (unsigned long)per_sec_tim1,
                          (unsigned long)total_tim1,
@@ -197,7 +204,7 @@ int main(void)
               (unsigned long)total_tima_out2_rst);
       if (len > 0)
       {
-        (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)len);
+        (void)BLE_Transmit_Data_DMA((uint8_t *)g_ble_msg, (uint16_t)len);
       }
     }
   }
