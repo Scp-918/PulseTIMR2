@@ -113,7 +113,7 @@ void MX_HRTIM1_Init(void)
   pTimeBaseCfg.Period = 200;
   pTimeBaseCfg.RepetitionCounter = 0x03;
   pTimeBaseCfg.PrescalerRatio = HRTIM_PRESCALERRATIO_DIV1;
-  pTimeBaseCfg.Mode = HRTIM_MODE_CONTINUOUS;
+  pTimeBaseCfg.Mode = HRTIM_MODE_SINGLESHOT_RETRIGGERABLE;
   if (HAL_HRTIM_TimeBaseConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, &pTimeBaseCfg) != HAL_OK)
   {
     Error_Handler();
@@ -125,7 +125,7 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pTimerCfg.InterruptRequests = HRTIM_TIM_IT_CMP1|HRTIM_TIM_IT_REP;
+  pTimerCfg.InterruptRequests = HRTIM_TIM_IT_CMP1;
   pTimerCfg.DMARequests = HRTIM_TIM_DMA_NONE;
   pTimerCfg.StartOnSync = HRTIM_SYNCSTART_DISABLED;
   pTimerCfg.BurstMode = HRTIM_TIMERBURSTMODE_RESETCOUNTER;

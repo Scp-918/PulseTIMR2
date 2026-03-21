@@ -55,15 +55,7 @@
 /* USER CODE BEGIN PV */
 static volatile uint32_t g_tim1_isr_count = 0;
 static volatile uint32_t g_master_cmp4_isr_count = 0;
-static volatile uint32_t g_tima_rep_isr_count = 0;
 static volatile uint32_t g_tima_cmp1_isr_count = 0;
-
-static uint32_t g_last_tim1_total = 0;
-static uint32_t g_last_master_cmp4_total = 0;
-static uint32_t g_last_tima_rep_total = 0;
-static uint32_t g_last_tima_cmp1_total = 0;
-static uint32_t g_last_print_tick = 0;
-static char g_usb_msg[128];
 
 /* USER CODE END PV */
 
@@ -106,15 +98,15 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_HRTIM1_Init();
-  MX_I2C3_Init();
-  MX_SPI1_Init();
-  MX_SPI3_Init();
-  MX_USART1_UART_Init();
-  MX_USB_Device_Init();
-  MX_TIM1_Init();
+  // MX_GPIO_Init();
+  // MX_DMA_Init();
+  // MX_HRTIM1_Init();
+  // MX_I2C3_Init();
+  // MX_SPI1_Init();
+  // MX_SPI3_Init();
+  // MX_USART1_UART_Init();
+  // MX_USB_Device_Init();
+  // MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   MX_HRTIM1_Init();
   MX_USB_Device_Init();
@@ -134,7 +126,7 @@ int main(void)
                               HRTIM_MASTER_IT_SYNC);
   __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
                              HRTIM_TIMERINDEX_TIMER_A,
-                             HRTIM_TIM_IT_CMP1 | HRTIM_TIM_IT_REP);
+                             HRTIM_TIM_IT_CMP1);
   NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
   NVIC_ClearPendingIRQ(HRTIM1_TIMA_IRQn);
 
@@ -142,7 +134,7 @@ int main(void)
                                HRTIM_MASTER_IT_MCMP4);
   __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1,
                               HRTIM_TIMERINDEX_TIMER_A,
-                              HRTIM_TIM_IT_CMP1 | HRTIM_TIM_IT_REP);
+                              HRTIM_TIM_IT_CMP1);
   HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
   HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
 
@@ -153,10 +145,8 @@ int main(void)
 
   __enable_irq();
 
-  (void)snprintf(g_usb_msg, sizeof(g_usb_msg), "TIM1->HRTIM(M+TA) sync start\r\n");
-  (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)strlen(g_usb_msg));
-
-  g_last_print_tick = HAL_GetTick();
+  // (void)snprintf(g_usb_msg, sizeof(g_usb_msg), "TIM1->HRTIM(M+TA) sync start\r\n");
+  // (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)strlen(g_usb_msg));
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -166,46 +156,18 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    uint32_t now = HAL_GetTick();
-    if ((now - g_last_print_tick) >= 1000U)
+    if (g_master_cmp4_isr_count >= 400U)
     {
-      uint32_t total_tim1;
-      uint32_t total_master_cmp4;
-      uint32_t total_tima_rep;
-      uint32_t total_tima_cmp1;
-
       __disable_irq();
-      total_tim1 = g_tim1_isr_count;
-      total_master_cmp4 = g_master_cmp4_isr_count;
-      total_tima_rep = g_tima_rep_isr_count;
-      total_tima_cmp1 = g_tima_cmp1_isr_count;
+      g_tim1_isr_count = 0;
+      g_master_cmp4_isr_count = 0;
+      g_tima_cmp1_isr_count = 0;
       __enable_irq();
 
-      uint32_t per_sec_tim1 = total_tim1 - g_last_tim1_total;
-      uint32_t per_sec_master_cmp4 = total_master_cmp4 - g_last_master_cmp4_total;
-      uint32_t per_sec_tima_rep = total_tima_rep - g_last_tima_rep_total;
-      uint32_t per_sec_tima_cmp1 = total_tima_cmp1 - g_last_tima_cmp1_total;
-      g_last_tim1_total = total_tim1;
-      g_last_master_cmp4_total = total_master_cmp4;
-      g_last_tima_rep_total = total_tima_rep;
-      g_last_tima_cmp1_total = total_tima_cmp1;
-      g_last_print_tick = now;
-
-      int len = snprintf(g_usb_msg,
-                         sizeof(g_usb_msg),
-             "TIM1:%lu/s(%lu) MCMP4:%lu/s(%lu) TA_REP:%lu/s(%lu) TA_CMP1:%lu/s(%lu)\r\n",
-                         (unsigned long)per_sec_tim1,
-                         (unsigned long)total_tim1,
-             (unsigned long)per_sec_master_cmp4,
-             (unsigned long)total_master_cmp4,
-             (unsigned long)per_sec_tima_rep,
-             (unsigned long)total_tima_rep,
-             (unsigned long)per_sec_tima_cmp1,
-             (unsigned long)total_tima_cmp1);
-      if (len > 0)
-      {
-        (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)len);
-      }
+      // (void)snprintf(g_usb_msg,
+      //                sizeof(g_usb_msg),
+      //                "TIM1/MCMP4/TA_CMP1 counters reset at MCMP4=400\r\n");
+      // (void)CDC_Transmit_FS2((uint8_t*)g_usb_msg, (uint16_t)strlen(g_usb_msg));
     }
   }
   /* USER CODE END 3 */
@@ -271,14 +233,6 @@ void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
   if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_MASTER))
   {
     g_master_cmp4_isr_count++;
-  }
-}
-
-void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
-{
-  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
-  {
-    g_tima_rep_isr_count++;
   }
 }
 
