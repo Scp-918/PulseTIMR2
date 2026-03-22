@@ -26,10 +26,12 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
+#include "usbd_cdc_if.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "ble.h"
+#include "usbd_cdc_if.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -90,7 +92,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+   HAL_Init();
 
   /* USER CODE BEGIN Init */
 
@@ -119,6 +121,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_HRTIM1_Init();
   MX_TIM1_Init();
+  MX_USB_Device_Init();
 
   if (BLE_Init() != HAL_OK)
   {
@@ -159,8 +162,8 @@ int main(void)
 
   __enable_irq();
 
-  (void)snprintf(g_ble_msg, sizeof(g_ble_msg), "TIM1->HRTIM(M+TA) sync start\r\n");
-  (void)BLE_Transmit_Data_DMA((uint8_t *)g_ble_msg, (uint16_t)strlen(g_ble_msg));
+  // (void)snprintf(g_ble_msg, sizeof(g_ble_msg), "TIM1->HRTIM(M+TA) sync start\r\n");
+  // (void)BLE_Transmit_Data_DMA((uint8_t *)g_ble_msg, (uint16_t)strlen(g_ble_msg));
 
   g_last_print_tick = HAL_GetTick();
   /* USER CODE END 2 */
@@ -205,6 +208,8 @@ int main(void)
       if (len > 0)
       {
         (void)BLE_Transmit_Data_DMA((uint8_t *)g_ble_msg, (uint16_t)len);
+        /* USB CDC 非阻塞对比发送：BUSY 时直接返回，不影响主循环节拍。 */
+        (void)CDC_Transmit_FS2((uint8_t *)g_ble_msg, (uint16_t)len);
       }
     }
   }

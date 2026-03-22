@@ -13,7 +13,7 @@ extern "C" {
  * =========================== */
 
 /* [目标波特率] 初始化成功后，MCU 与蓝牙模块都工作在该速率，用于高频数据链路。 */
-#define BLE_TARGET_BAUD                 115200U
+#define BLE_TARGET_BAUD                 460800U
 
 /* [默认波特率] 模块出厂 UART 波特率。 */
 #define BLE_DEFAULT_BAUD                19200U
