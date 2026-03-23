@@ -66,7 +66,12 @@ static HAL_StatusTypeDef LSM9DS1_WriteReg_Blocking(uint8_t reg, uint8_t value)
 {
     uint8_t tx_buf[2];
 
-    /* 写命令 bit7 必须为 0 */
+    /*
+     * LSM9DS1 SPI 写寄存器帧：
+     * - 第 1 字节: [bit7=0 | reg_addr(6:0)]
+     * - 第 2 字节: value
+     * 这里强制清 bit7，避免误发读命令。
+     */
     tx_buf[0] = (uint8_t)(reg & LSM9DS1_SPI_REG_ADDR_MASK);
     tx_buf[1] = value;
 
@@ -96,7 +101,12 @@ static HAL_StatusTypeDef LSM9DS1_ReadReg_Blocking(uint8_t reg, uint8_t *value)
         return HAL_ERROR;
     }
 
-    /* 读命令 bit7 必须为 1 */
+    /*
+     * LSM9DS1 SPI 读寄存器帧：
+     * - 第 1 字节: [bit7=1 | reg_addr(6:0)]
+     * - 第 2 字节: dummy(0x00)，仅用于继续提供时钟
+     * 返回数据在 rx_buf[1]，rx_buf[0] 为命令阶段回传废位。
+     */
     tx_buf[0] = (uint8_t)(reg | LSM9DS1_SPI_RW_READ_BIT);
     tx_buf[1] = 0x00U;
 
@@ -117,17 +127,24 @@ static HAL_StatusTypeDef LSM9DS1_ReadWhoAmI(uint8_t *who_am_i)
     /*
      * 明确按需求发送 0x8F：
      * WHO_AM_I(0x0F) | 读位(0x80) = 0x8F。
+     * 返回值应为 0x68；该值不受量程/ODR配置影响，
+     * 是判断 SPI 线、CS 时序、供电是否正确的首要门槛。
      */
     return LSM9DS1_ReadReg_Blocking(LSM9DS1_REG_WHO_AM_I, who_am_i);
 }
 
 static int16_t LSM9DS1_AssembleInt16LE(uint8_t low_byte, uint8_t high_byte)
 {
+    /* 输出寄存器采用 little-endian: OUT_X_L 在前，OUT_X_H 在后。 */
     return (int16_t)(((uint16_t)high_byte << 8) | (uint16_t)low_byte);
 }
 
 static void LSM9DS1_UpdateSensitivity(uint8_t accel_fs, uint8_t gyro_fs)
 {
+    /*
+     * 此函数只维护“原始计数 -> 物理单位”换算系数，
+     * 与寄存器写入动作解耦，避免在中断或热路径里做重复判断。
+     */
     switch (accel_fs)
     {
         case LSM9DS1_ACCEL_FS_2G:
@@ -227,20 +244,34 @@ HAL_StatusTypeDef LSM9DS1_Init(void)
         return HAL_ERROR;
     }
 
-    /* 软复位，按文档要求等待 20ms */
+    /*
+     * Step-1 软复位：CTRL_REG8(0x22)=0x05
+     * - bit2 IF_ADD_INC=1：即使复位阶段也允许后续地址自增行为一致
+     * - bit0 SW_RESET=1：触发内部数字逻辑复位
+     * 复位后必须等待寄存器重装完成。
+     */
     if (LSM9DS1_WriteReg_Blocking(LSM9DS1_REG_CTRL_REG8, LSM9DS1_INIT_CTRL_REG8_RESET) != HAL_OK)
     {
         return HAL_ERROR;
     }
     HAL_Delay(20U);
 
-    /* 开启 BDU + IF_ADD_INC，保证多字节读取防撕裂且地址自动递增 */
+    /*
+     * Step-2 工作总线配置：CTRL_REG8(0x22)=0x44
+     * - bit6 BDU=1：高低字节需成对读取后才更新，防止“撕裂数据”
+     * - bit2 IF_ADD_INC=1：突发读取地址自动递增，支持一次读完 12 字节
+     */
     if (LSM9DS1_WriteReg_Blocking(LSM9DS1_REG_CTRL_REG8, LSM9DS1_INIT_CTRL_REG8_NORMAL) != HAL_OK)
     {
         return HAL_ERROR;
     }
 
-    /* 关闭 FIFO 与中断，强制使用主定时器主动轮询架构 */
+    /*
+     * Step-3 关闭 FIFO 与硬件中断，采用“主控主动轮询”架构。
+     * - CTRL_REG9(0x23)=0x00：FIFO_EN=0，禁用 FIFO 缓冲路径
+     * - FIFO_CTRL(0x2E)=0x00：FMODE=Bypass，完全旁路 FIFO
+     * - INT1_CTRL(0x0C)=0x00：关闭 DRDY/FTH/OVR 等硬件中断输出
+     */
     if (LSM9DS1_WriteReg_Blocking(LSM9DS1_REG_CTRL_REG9, LSM9DS1_INIT_CTRL_REG9) != HAL_OK)
     {
         return HAL_ERROR;
@@ -254,7 +285,13 @@ HAL_StatusTypeDef LSM9DS1_Init(void)
         return HAL_ERROR;
     }
 
-    /* 陀螺仪配置：119Hz, ±500dps, 高通滤波 */
+    /*
+     * Step-4 陀螺仪配置
+     * - CTRL_REG1_G(0x10)=0x68:
+     *   ODR_G=119Hz, FS_G=±500dps, BW_G=14Hz
+     * - CTRL_REG3_G(0x12)=0x46:
+     *   HP_EN=1 + HPCF_G=0b0110，抑制慢变零偏漂移
+     */
     if (LSM9DS1_WriteReg_Blocking(LSM9DS1_REG_CTRL_REG1_G, LSM9DS1_INIT_CTRL_REG1_G) != HAL_OK)
     {
         return HAL_ERROR;
@@ -264,7 +301,13 @@ HAL_StatusTypeDef LSM9DS1_Init(void)
         return HAL_ERROR;
     }
 
-    /* 加速度计配置：119Hz, ±4g, 高分辨率+数字滤波 */
+    /*
+     * Step-5 加速度计配置
+     * - CTRL_REG6_XL(0x20)=0x70:
+     *   ODR_XL=119Hz, FS_XL=±4g, 带宽自动由 ODR 决定
+     * - CTRL_REG7_XL(0x21)=0xC4:
+     *   HR=1 高分辨率, DCF=00(ODR/9), FDS=1 输出滤波后数据
+     */
     if (LSM9DS1_WriteReg_Blocking(LSM9DS1_REG_CTRL_REG6_XL, LSM9DS1_INIT_CTRL_REG6_XL) != HAL_OK)
     {
         return HAL_ERROR;
@@ -274,6 +317,7 @@ HAL_StatusTypeDef LSM9DS1_Init(void)
         return HAL_ERROR;
     }
 
+    /* 初始化“寄存器镜像 + 换算系数 + 运行态统计” */
     s_ctrl_reg1_g_shadow = LSM9DS1_INIT_CTRL_REG1_G;
     s_ctrl_reg6_xl_shadow = LSM9DS1_INIT_CTRL_REG6_XL;
     LSM9DS1_UpdateSensitivity(LSM9DS1_ACCEL_FS_4G, LSM9DS1_GYRO_FS_500DPS);
@@ -309,6 +353,7 @@ HAL_StatusTypeDef LSM9DS1_TriggerRead_IT(void)
         return HAL_BUSY;
     }
 
+    /* 防止 SPI 外设正被其他事务占用（包括未完成的 DMA）。 */
     if (hspi1.State != HAL_SPI_STATE_READY)
     {
         return HAL_BUSY;
@@ -317,6 +362,10 @@ HAL_StatusTypeDef LSM9DS1_TriggerRead_IT(void)
     /* 清缓冲保证本帧数据可追踪，便于调试 DMA 对齐问题 */
     (void)memset((void *)s_spi_tx_buf, 0, sizeof(s_spi_tx_buf));
     (void)memset((void *)s_spi_rx_buf, 0, sizeof(s_spi_rx_buf));
+    /*
+     * 0x98 = 0x18 | 0x80：
+     * 从 OUT_X_L_G 起始做连续读，依赖 IF_ADD_INC 自动递增。
+     */
     s_spi_tx_buf[0] = LSM9DS1_BURST_READ_CMD;
 
     /*
@@ -324,6 +373,11 @@ HAL_StatusTypeDef LSM9DS1_TriggerRead_IT(void)
      * 这样 DMA 第一拍发送读命令时器件已被选中，避免首字节丢失。
      */
     LSM9DS1_CS_Low();
+    /*
+     * 13 字节 DMA 事务结构：
+     * - tx[0] 命令 + tx[1..12] dummy
+     * - rx[0] 废位 + rx[1..12] 六轴数据
+     */
     ret = HAL_SPI_TransmitReceive_DMA(&hspi1, s_spi_tx_buf, s_spi_rx_buf, LSM9DS1_SPI_DMA_FRAME_LEN);
     if (ret != HAL_OK)
     {
@@ -335,6 +389,7 @@ HAL_StatusTypeDef LSM9DS1_TriggerRead_IT(void)
         return ret;
     }
 
+    /* 置忙后由 DMA 完成/错误回调负责清 busy。 */
     s_dma_busy = 1U;
     s_runtime.dma_busy = 1U;
     return HAL_OK;
@@ -360,6 +415,7 @@ void LSM9DS1_SPI_TxRxCpltHandler(SPI_HandleTypeDef *hspi)
     LSM9DS1_CS_High();
     s_dma_busy = 0U;
     s_runtime.dma_busy = 0U;
+    /* 先记完成计数，再解包，便于上层按计数边沿判断本次事务已落地。 */
     s_runtime.dma_ok_count++;
 
     LSM9DS1_ProcessDmaRxData();
@@ -381,6 +437,7 @@ void LSM9DS1_SPI_ErrorHandler(SPI_HandleTypeDef *hspi)
     LSM9DS1_CS_High();
     s_dma_busy = 0U;
     s_runtime.dma_busy = 0U;
+    /* 任何 SPI 错误都计入错误计数，上位机可用其判断链路健康度。 */
     s_runtime.dma_error_count++;
 }
 
@@ -400,6 +457,7 @@ HAL_StatusTypeDef LSM9DS1_SetFullScale(uint8_t accel_fs, uint8_t gyro_fs)
     uint8_t new_ctrl_reg1_g;
     uint8_t old_ctrl_reg6_xl;
 
+    /* 配置寄存器期间禁止与 DMA 读并发，避免读到跨量程混合帧。 */
     if (s_dma_busy != 0U)
     {
         return HAL_BUSY;
@@ -451,6 +509,10 @@ HAL_StatusTypeDef LSM9DS1_SetFullScale(uint8_t accel_fs, uint8_t gyro_fs)
      * - CTRL_REG1_G [4:3] = FS_G
      * 其余位保持初始化配置，避免误改 ODR/BW/滤波。
      */
+    /*
+     * new_ctrl_reg*_x 只改 FS 位，其余位继承 shadow，
+     * 这样不会破坏 ODR、滤波、BDU 等初始化设定。
+     */
     old_ctrl_reg6_xl = s_ctrl_reg6_xl_shadow;
     new_ctrl_reg6_xl = (uint8_t)((s_ctrl_reg6_xl_shadow & (uint8_t)(~LSM9DS1_FS_FIELD_MASK)) | ((accel_fs_bits & 0x03U) << 3));
     new_ctrl_reg1_g = (uint8_t)((s_ctrl_reg1_g_shadow & (uint8_t)(~LSM9DS1_FS_FIELD_MASK)) | ((gyro_fs_bits & 0x03U) << 3));
@@ -467,6 +529,7 @@ HAL_StatusTypeDef LSM9DS1_SetFullScale(uint8_t accel_fs, uint8_t gyro_fs)
         return HAL_ERROR;
     }
 
+    /* 提交 shadow 与物理量换算系数，确保“寄存器状态”和“换算公式”一致。 */
     s_ctrl_reg6_xl_shadow = new_ctrl_reg6_xl;
     s_ctrl_reg1_g_shadow = new_ctrl_reg1_g;
     s_accel_sens_mg_lsb = new_accel_sens;
@@ -510,10 +573,12 @@ const LSM9DS1_RuntimeState_t *LSM9DS1_GetRuntimeState(void)
  */
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 {
+    /* 当前工程由 LSM9DS1 接管 SPI1 的 TxRx 完成分发。 */
     LSM9DS1_SPI_TxRxCpltHandler(hspi);
 }
 
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
+    /* 当前工程由 LSM9DS1 接管 SPI1 的错误分发。 */
     LSM9DS1_SPI_ErrorHandler(hspi);
 }
