@@ -606,6 +606,17 @@ int main(void)
     Error_Handler();
   }
 
+  /*
+   * 启动 TimerA 的波形输出门控：
+   * - TA1: 电桥激励门控输出
+   * - TA2: AD4007 CNV 脉冲输出
+   * 仅启动计数器不足以把波形真正送到引脚，需显式打开输出门控。
+   */
+  if (HAL_HRTIM_WaveformOutputStart(&hhrtim1, HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   __HAL_HRTIM_MASTER_CLEAR_IT(&hhrtim1,
                               HRTIM_MASTER_IT_MCMP4 |
                               HRTIM_MASTER_IT_MUPD |
@@ -613,7 +624,7 @@ int main(void)
                               HRTIM_MASTER_IT_SYNC);
   __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
                              HRTIM_TIMERINDEX_TIMER_A,
-                             HRTIM_TIM_IT_CMP1);
+                             HRTIM_TIM_IT_RST2);
   NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
   NVIC_ClearPendingIRQ(HRTIM1_TIMA_IRQn);
 
@@ -745,7 +756,9 @@ int main(void)
                               HRTIM_MASTER_IT_SYNC);
   __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
                              HRTIM_TIMERINDEX_TIMER_A,
-                             HRTIM_TIM_IT_CMP1);
+                             HRTIM_TIM_IT_CMP1 |
+                             HRTIM_TIM_IT_CMP3 |
+                             HRTIM_TIM_IT_REP);
 
   /* 清 pending，避免上电残留中断状态导致首拍异常。 */
   NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
@@ -755,7 +768,7 @@ int main(void)
   __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1, HRTIM_MASTER_IT_MCMP4);
   __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1,
                               HRTIM_TIMERINDEX_TIMER_A,
-                              HRTIM_TIM_IT_CMP1);
+                              HRTIM_TIM_IT_RST2);
 
   HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
   HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
@@ -811,6 +824,17 @@ int main(void)
     Error_Handler();
   }
 
+    /*
+   * 启动 TimerA 的波形输出门控：
+   * - TA1: 电桥激励门控输出
+   * - TA2: AD4007 CNV 脉冲输出
+   * 仅启动计数器不足以把波形真正送到引脚，需显式打开输出门控。
+   */
+  if (HAL_HRTIM_WaveformOutputStart(&hhrtim1, HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   __HAL_HRTIM_MASTER_CLEAR_IT(&hhrtim1,
                               HRTIM_MASTER_IT_MCMP4 |
                               HRTIM_MASTER_IT_MUPD |
@@ -818,7 +842,9 @@ int main(void)
                               HRTIM_MASTER_IT_SYNC);
   __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
                              HRTIM_TIMERINDEX_TIMER_A,
-                             HRTIM_TIM_IT_CMP1);
+                             HRTIM_TIM_IT_CMP1 |
+                             HRTIM_TIM_IT_CMP3 |
+                             HRTIM_TIM_IT_REP);
 
   NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
   NVIC_ClearPendingIRQ(HRTIM1_TIMA_IRQn);
@@ -826,7 +852,9 @@ int main(void)
   __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1, HRTIM_MASTER_IT_MCMP4);
   __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1,
                               HRTIM_TIMERINDEX_TIMER_A,
-                              HRTIM_TIM_IT_CMP1);
+                              HRTIM_TIM_IT_CMP1 |
+                              HRTIM_TIM_IT_CMP3 |
+                              HRTIM_TIM_IT_REP);
 
   HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
   HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
@@ -1318,39 +1346,29 @@ static void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
 
 void HAL_HRTIM_Compare1EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /*
-   * 当前生效触发：CMP1。
-   * 该路径与 3x 成功链保持一致，用于捕获 TA2 脉冲对应的有效采样时点。
-   */
-  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
+  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 void HAL_HRTIM_Compare3EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 旧方案保留：CMP3 触发链当前关闭。 */
-#if 0
-  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
-#endif
+  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
+  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 旧方案保留：REP 触发链当前关闭。 */
-#if 0
-  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
-#endif
+  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
+  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 void HAL_HRTIM_Output2ResetCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /*
-   * 重要说明：
-   * HAL 中的 Output2ResetCallback 对应的是 TIM_IT_RST2（定时器复位事件），
-   * 并非 TA2 引脚电平“输出复位边沿”本身。
-   * 为避免事件语义混淆，当前关闭该路径，保留用于回滚对照。
-   */
-  (void)hhrtim;
-  (void)TimerIdx;
+  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
+  {
+    /* 当前生效：使用 TimerA Output2 reset(RST2) 作为 CNV 下降沿触发。 */
+    ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+  }
 }
 
 /* USER CODE END 4 */
