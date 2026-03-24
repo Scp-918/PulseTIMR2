@@ -129,7 +129,9 @@ static uint8_t g_usb_send_pending = 0U;
 static uint32_t g_adc_dma_start_fail_count = 0U;
 static uint32_t g_adc_dma_decode_fail_count = 0U;
 static uint32_t g_adc_dma_timeout_count = 0U;
+static uint32_t g_adc_busy_skip_count = 0U;
 static uint32_t g_adc_fall_event_count = 0U;
+static uint32_t g_adc_start_ok_count = 0U;
 static uint32_t g_adc_sample_ok_count = 0U;
 
 /*
@@ -611,7 +613,7 @@ int main(void)
                               HRTIM_MASTER_IT_SYNC);
   __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
                              HRTIM_TIMERINDEX_TIMER_A,
-                             HRTIM_TIM_IT_RST2);
+                             HRTIM_TIM_IT_CMP1);
   NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
   NVIC_ClearPendingIRQ(HRTIM1_TIMA_IRQn);
 
@@ -743,9 +745,7 @@ int main(void)
                               HRTIM_MASTER_IT_SYNC);
   __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
                              HRTIM_TIMERINDEX_TIMER_A,
-                             HRTIM_TIM_IT_CMP1 |
-                             HRTIM_TIM_IT_CMP3 |
-                             HRTIM_TIM_IT_REP);
+                             HRTIM_TIM_IT_CMP1);
 
   /* 清 pending，避免上电残留中断状态导致首拍异常。 */
   NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
@@ -755,7 +755,7 @@ int main(void)
   __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1, HRTIM_MASTER_IT_MCMP4);
   __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1,
                               HRTIM_TIMERINDEX_TIMER_A,
-                              HRTIM_TIM_IT_RST2);
+                              HRTIM_TIM_IT_CMP1);
 
   HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
   HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
@@ -818,9 +818,7 @@ int main(void)
                               HRTIM_MASTER_IT_SYNC);
   __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
                              HRTIM_TIMERINDEX_TIMER_A,
-                             HRTIM_TIM_IT_CMP1 |
-                             HRTIM_TIM_IT_CMP3 |
-                             HRTIM_TIM_IT_REP);
+                             HRTIM_TIM_IT_CMP1);
 
   NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
   NVIC_ClearPendingIRQ(HRTIM1_TIMA_IRQn);
@@ -828,9 +826,7 @@ int main(void)
   __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1, HRTIM_MASTER_IT_MCMP4);
   __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1,
                               HRTIM_TIMERINDEX_TIMER_A,
-                              HRTIM_TIM_IT_CMP1 |
-                              HRTIM_TIM_IT_CMP3 |
-                              HRTIM_TIM_IT_REP);
+                              HRTIM_TIM_IT_CMP1);
 
   HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
   HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
@@ -840,9 +836,12 @@ int main(void)
     Error_Handler();
   }
 
+  #if 0
+  /* 启动文本提示保留用于联调；当前需求为“只发送帧”，因此关闭。 */
   (void)snprintf(g_usb_msg, sizeof(g_usb_msg),
                  "TIM1+HRTIM+AD4007 start: 6pulse/cycle, 4state/100Hz\r\n");
   (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+  #endif
 
   g_last_print_tick = HAL_GetTick();
   /* USER CODE END 2 */
@@ -1169,8 +1168,7 @@ int main(void)
     }
 #endif
 
-    #if 0
-    /* 临时关闭二进制帧发送链路，仅保留计数文本输出用于调试。 */
+    /* 当前生效：只发送二进制数据帧。 */
     if (g_usb_send_pending == 0U)
     {
       __disable_irq();
@@ -1191,21 +1189,25 @@ int main(void)
         g_usb_send_pending = 0U;
       }
     }
-    #endif
 
+#if 0
+    /* 调试计数文本输出：保留用于回滚诊断，当前关闭。 */
     if ((now - g_last_print_tick) >= 1000U)
     {
       g_last_print_tick = now;
       (void)snprintf(g_usb_msg,
                      sizeof(g_usb_msg),
-                     "fall=%lu ok=%lu dFail=%lu dDec=%lu dTo=%lu\r\n",
+                     "fall=%lu start=%lu ok=%lu dBusy=%lu dFail=%lu dDec=%lu dTo=%lu\r\n",
                      (unsigned long)g_adc_fall_event_count,
+                     (unsigned long)g_adc_start_ok_count,
                      (unsigned long)g_adc_sample_ok_count,
+                     (unsigned long)g_adc_busy_skip_count,
                      (unsigned long)g_adc_dma_start_fail_count,
                      (unsigned long)g_adc_dma_decode_fail_count,
                      (unsigned long)g_adc_dma_timeout_count);
       (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
     }
+#endif
   }
   /* USER CODE END 3 */
 }
@@ -1298,6 +1300,7 @@ static void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
           g_adc_dma_pending_slot = g_adc_pulse_start_index;
           g_adc_dma_pending = 1U;
           g_adc_pulse_start_index++;
+          g_adc_start_ok_count++;
         }
         else
         {
@@ -1305,34 +1308,49 @@ static void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
         }
       }
     }
+    else
+    {
+      /* 当前下降沿到来时，前一笔 SPI DMA 仍未完成，记为 busy skip。 */
+      g_adc_busy_skip_count++;
+    }
   }
 }
 
 void HAL_HRTIM_Compare1EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
-  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+  /*
+   * 当前生效触发：CMP1。
+   * 该路径与 3x 成功链保持一致，用于捕获 TA2 脉冲对应的有效采样时点。
+   */
+  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 void HAL_HRTIM_Compare3EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
-  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+  /* 旧方案保留：CMP3 触发链当前关闭。 */
+#if 0
+  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+#endif
 }
 
 void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
-  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+  /* 旧方案保留：REP 触发链当前关闭。 */
+#if 0
+  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+#endif
 }
 
 void HAL_HRTIM_Output2ResetCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
-  {
-    /* 当前生效：使用 TimerA Output2 reset(RST2) 作为 CNV 下降沿触发。 */
-    ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
-  }
+  /*
+   * 重要说明：
+   * HAL 中的 Output2ResetCallback 对应的是 TIM_IT_RST2（定时器复位事件），
+   * 并非 TA2 引脚电平“输出复位边沿”本身。
+   * 为避免事件语义混淆，当前关闭该路径，保留用于回滚对照。
+   */
+  (void)hhrtim;
+  (void)TimerIdx;
 }
 
 /* USER CODE END 4 */

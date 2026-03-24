@@ -313,7 +313,19 @@ HAL_StatusTypeDef AD4007_Start_DMA_Rx(uint8_t *rx_buffer, uint16_t sample_count)
         return HAL_ERROR;
     }
 
-    return HAL_SPI_Receive_DMA(&hspi3, rx_buffer, (uint16_t)dma_len_bytes);
+    /*
+     * SPI 主机模式下，为了保证每一位都有 SCK，
+     * 采用 TxRx DMA 并发送 0xFF dummy 字节流。
+     */
+    if (sample_count == 1u)
+    {
+        return HAL_SPI_TransmitReceive_DMA(&hspi3,
+                                           (uint8_t *)AD4007_SPI_TX_DUMMY,
+                                           rx_buffer,
+                                           (uint16_t)dma_len_bytes);
+    }
+
+    return HAL_ERROR;
 }
 
 /*
@@ -345,20 +357,27 @@ HAL_StatusTypeDef AD4007_ProcessRawData(uint8_t *dma_buffer, uint16_t sample_cou
 }
 
 /*
- * SPI3 接收完成回调：
- * 对于 DMA 异步接收场景，在传输完成后自动把 MOSI 拉高，
- * 让 AD4007 在下一次 CNV 边沿采样到 SDI=1，持续保持 CS 模式。
+ * SPI3 接收完成回调（轻量化版本）：
  *
- * 【重要备注 / 维护提醒】
- * 如果你后续在工程其他文件中也实现了 HAL_SPI_RxCpltCallback，
- * 必须把这里的 AD4007_ForceMOSIHigh() 逻辑合并进去，
- * 避免出现 HAL_SPI_RxCpltCallback 重复定义导致的链接冲突，
- * 以及因为遗漏 MOSI 拉高而引发的 AD4007 下一帧工作异常。
+ * 设计意图：
+ * 1) 高速触发场景下，DMA 完成回调必须尽量短，避免阻塞后续中断。
+ * 2) 当前读取链路使用 HAL_SPI_TransmitReceive_DMA + 0xFF dummy；
+ *    在 SPI 空闲后，MOSI 末位保持高电平（0xFF 的最后一位为 1），
+ *    可满足大多数 CS 模式保持需求。
+ *
+ * 回滚说明：
+ * - 若后续实验确认必须“每次 DMA 完成后强制 MOSI 拉高”，
+ *   可恢复下方 #if 0 中旧逻辑。
  */
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
 {
     if ((hspi != NULL) && (hspi->Instance == SPI3))
     {
+        /* 轻量路径：不在高频回调里做 GPIO 模式重配置。 */
+
+#if 0
+        /* 旧逻辑保留用于快速回滚对照。 */
         AD4007_ForceMOSIHigh();
+#endif
     }
 }
