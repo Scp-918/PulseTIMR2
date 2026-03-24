@@ -146,8 +146,12 @@ static uint32_t g_adc_sample_ok_count = 0U;
 static SensorRingBuffer_t g_sensor_rb;
 /* 主协议帧缓存。 */
 static uint8_t g_ble_frame[BLE_COMM_SINGLE_FRAME_SIZE];
-#if 1
-/* 调试文本输出状态缓存：保留用于回滚。 */
+#if 0
+/*
+ * 旧版文本调试状态缓存：
+ * - 当前正式固件不再编译该路径；
+ * - 变量定义保留，便于后续快速切回文本调试模式。
+ */
 static uint32_t g_last_print_tick = 0U;
 static uint32_t g_last_tim1_tick_count = 0U;
 static uint32_t g_last_master_cmp4_count = 0U;
@@ -1035,9 +1039,14 @@ int main(void)
   MX_HRTIM1_Init();
   MX_TIM1_Init();
 
+  /* 阶段1：初始化模拟开关与统一 ringbuffer。 */
   TMUX_Global_Init();
   RingBuffer_Init(&g_sensor_rb);
 
+  /*
+   * 阶段2：传感器电源上电序列。
+   * 必须按 E5V -> E3.3V -> E4V 顺序拉起，并预留稳定时间。
+   */
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_7, GPIO_PIN_SET);
   HAL_Delay(50);
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8, GPIO_PIN_SET);
@@ -1045,14 +1054,17 @@ int main(void)
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);
   HAL_Delay(50);
 
+  /* 阶段3：建立 BLE 通道，作为主协议帧输出链路。 */
   if (BLE_Init() != HAL_OK)
   {
     Error_Handler();
   }
 
+  /* 阶段4：绑定 PPG/MIMU 到同一 ringbuffer，统一交由主循环融合。 */
   MAX30101_AttachRingBuffer(&g_sensor_rb);
   LSM9DS1_AttachRingBuffer(&g_sensor_rb);
 
+  /* 阶段5：初始化 PPG，配置为三光路轮切。 */
   if (MAX30101_Init() == 0U)
   {
     Error_Handler();
@@ -1069,22 +1081,26 @@ int main(void)
     Error_Handler();
   }
 
+  /* 阶段6：初始化 MIMU。 */
   if (LSM9DS1_Init() != HAL_OK)
   {
     Error_Handler();
   }
 
+  /* 阶段7：初始化 AD4007，准备进入 HRTIM 驱动采样。 */
   if (AD4007_Init() != HAL_OK)
   {
     Error_Handler();
   }
 
+  /* 阶段8：设置初始桥臂相位，并清空本轮采样累加器。 */
   g_tim_group_phase = 1U;
   Bridge_ApplyState(g_tim_group_phase);
   ADC_ResetCycleAccumulator();
   (void)memset(&g_group_frame, 0, sizeof(g_group_frame));
   (void)memset(&g_ble_send_frame, 0, sizeof(g_ble_send_frame));
 
+  /* 阶段9：启动 HRTIM 计数器与输出，进入硬件触发采样状态。 */
   if (HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A) != HAL_OK)
   {
     Error_Handler();
@@ -1125,10 +1141,6 @@ int main(void)
   {
     Error_Handler();
   }
-
-#if 0
-  g_last_print_tick = HAL_GetTick();
-#endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -1455,9 +1467,11 @@ int main(void)
     }
 #endif
 
- #if 1
     /*
-     * 主协议帧发送路径（当前生效）。
+     * 主协议帧发送路径（当前正式生效）：
+     * 1) 由中断侧置位 g_group_frame_ready_for_send；
+     * 2) 主循环提交并切换一帧延迟缓存；
+     * 3) 若 UART DMA 空闲，则打包并发送固定长度协议帧。
      */
     if (g_group_frame_ready_for_send != 0U)
     {
@@ -1472,7 +1486,6 @@ int main(void)
         g_ble_send_pending = 0U;
       }
     }
- #endif
 
   #if 0
     /*

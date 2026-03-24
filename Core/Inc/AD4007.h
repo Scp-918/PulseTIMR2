@@ -67,29 +67,14 @@ HAL_StatusTypeDef AD4007_Init(void);
 HAL_StatusTypeDef AD4007_ConfigMode(bool enable_high_z, bool enable_span_comp, bool enable_turbo);
 
 /*
- * @brief 测试读取接口（轮询版）
- * @param out_code 输出单次 18-bit 符号扩展后的 int32 码值
- *
- * @note 执行流程：
- * 1) 临时将 PA9 从 AF13(HRTIM1_CHA2) 切换为 GPIO 推挽输出。
- * 2) 软件产生 CNV 高脉冲触发转换。
- * 3) 轮询 SPI3 收 3 字节并完成 24-bit->18-bit 解包和符号扩展。
- * 4) 将 PA9 恢复为 AF13。
+ * 历史调试接口归档：
+ * - 正式固件仅保留 AD4007_Init/AD4007_Start_DMA_Rx/AD4007_ProcessRawData 三条主路径；
+ * - 单次手动 CNV 的测试接口保留在 #if 0 中，便于后续联调快速回滚。
  */
+#if 0
 HAL_StatusTypeDef AD4007_test_Rx(int32_t *out_code);
-
-/*
- * @brief 测试读取接口（SPI+DMA版，手动CNV）
- * @param out_code    输出单次 18-bit 符号扩展后的 int32 码值
- * @param timeout_ms  等待 DMA 完成的超时时间（毫秒）
- *
- * @note 执行流程：
- * 1) 临时将 PA9 从 AF13(HRTIM1_CHA2) 切换为 GPIO 推挽输出；
- * 2) 软件产生 CNV 高脉冲触发转换；
- * 3) 通过 SPI3 + DMA 读取 3 字节；
- * 4) 等待 DMA 完成后解包码值，再恢复 PA9 为 AF13。
- */
 HAL_StatusTypeDef AD4007_test_DMA_Rx(int32_t *out_code, uint32_t timeout_ms);
+#endif
 
 /*
  * @brief 启动 SPI3 + DMA 异步接收

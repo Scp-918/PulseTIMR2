@@ -198,8 +198,12 @@ HAL_StatusTypeDef AD4007_Init(void)
 }
 
 /*
- * 轮询读取测试函数：临时接管 PA9 触发一次转换，读取 3 字节并输出 int32 码值。
+ * 历史调试接口归档：
+ * - 下方两组函数用于“软件手动 CNV + 单点读取”联调；
+ * - 当前正式路径改为 HRTIM 驱动 + AD4007_Start_DMA_Rx()；
+ * - 为减少正式固件符号暴露与误调用风险，此处默认不参与编译。
  */
+#if 0
 HAL_StatusTypeDef AD4007_test_Rx(int32_t *out_code)
 {
     HAL_StatusTypeDef ret;
@@ -235,10 +239,6 @@ HAL_StatusTypeDef AD4007_test_Rx(int32_t *out_code)
     return HAL_OK;
 }
 
-/*
- * SPI+DMA 读取测试函数：
- * 临时接管 PA9 触发一次转换，然后以 DMA 方式读取 3 字节并解包。
- */
 HAL_StatusTypeDef AD4007_test_DMA_Rx(int32_t *out_code, uint32_t timeout_ms)
 {
     HAL_StatusTypeDef ret;
@@ -255,10 +255,6 @@ HAL_StatusTypeDef AD4007_test_DMA_Rx(int32_t *out_code, uint32_t timeout_ms)
 
     AD4007_GenerateCnvPulse_SW();
 
-    /*
-     * 主机模式下 DMA 接收必须同时发送 dummy 以产生 SCK。
-     * 这里使用 0xFF 保持 SDI 高电平，避免影响 AD4007 的 CS 模式判定。
-     */
     ret = HAL_SPI_TransmitReceive_DMA(&hspi3,
                                       (uint8_t *)AD4007_SPI_TX_DUMMY,
                                       rx_frame,
@@ -290,6 +286,7 @@ HAL_StatusTypeDef AD4007_test_DMA_Rx(int32_t *out_code, uint32_t timeout_ms)
     *out_code = AD4007_DecodeOneSample(rx_frame);
     return HAL_OK;
 }
+#endif
 
 /*
  * 启动 SPI3 + DMA 接收：
