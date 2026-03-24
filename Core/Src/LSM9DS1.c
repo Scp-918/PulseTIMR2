@@ -21,6 +21,7 @@ static uint8_t s_spi_rx_buf[LSM9DS1_SPI_DMA_FRAME_LEN] = {0};
 static volatile uint8_t s_dma_busy = 0U;
 static volatile LSM9DS1_RawData_t s_latest_raw = {0};
 static SensorDataFrame_t *s_bound_frame = NULL;
+static SensorRingBuffer_t *s_ring_buffer = NULL;
 static LSM9DS1_RuntimeState_t s_runtime = {0};
 
 /*
@@ -215,6 +216,20 @@ static void LSM9DS1_ProcessDmaRxData(void)
         s_bound_frame->imu_data[4] = raw.ay;
         s_bound_frame->imu_data[5] = raw.az;
     }
+
+    if (s_ring_buffer != NULL)
+    {
+        SensorDataFrame_t frame = {0};
+
+        frame.imu_data[0] = raw.gx;
+        frame.imu_data[1] = raw.gy;
+        frame.imu_data[2] = raw.gz;
+        frame.imu_data[3] = raw.ax;
+        frame.imu_data[4] = raw.ay;
+        frame.imu_data[5] = raw.az;
+
+        (void)RingBuffer_Push(s_ring_buffer, &frame);
+    }
 }
 
 /*
@@ -336,6 +351,11 @@ HAL_StatusTypeDef LSM9DS1_Init(void)
 void LSM9DS1_AttachFrameBuffer(SensorDataFrame_t *frame)
 {
     s_bound_frame = frame;
+}
+
+void LSM9DS1_AttachRingBuffer(SensorRingBuffer_t *rb)
+{
+    s_ring_buffer = rb;
 }
 
 /*

@@ -79,6 +79,19 @@ HAL_StatusTypeDef AD4007_ConfigMode(bool enable_high_z, bool enable_span_comp, b
 HAL_StatusTypeDef AD4007_test_Rx(int32_t *out_code);
 
 /*
+ * @brief 测试读取接口（SPI+DMA版，手动CNV）
+ * @param out_code    输出单次 18-bit 符号扩展后的 int32 码值
+ * @param timeout_ms  等待 DMA 完成的超时时间（毫秒）
+ *
+ * @note 执行流程：
+ * 1) 临时将 PA9 从 AF13(HRTIM1_CHA2) 切换为 GPIO 推挽输出；
+ * 2) 软件产生 CNV 高脉冲触发转换；
+ * 3) 通过 SPI3 + DMA 读取 3 字节；
+ * 4) 等待 DMA 完成后解包码值，再恢复 PA9 为 AF13。
+ */
+HAL_StatusTypeDef AD4007_test_DMA_Rx(int32_t *out_code, uint32_t timeout_ms);
+
+/*
  * @brief 启动 SPI3 + DMA 异步接收
  * @param rx_buffer    DMA 接收缓存（长度至少为 sample_count*3 字节）
  * @param sample_count 采样点数（每点 3 字节）

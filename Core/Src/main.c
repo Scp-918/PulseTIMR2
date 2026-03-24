@@ -30,12 +30,21 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "ble.h"
 #if 0
+#include "AD4007.h"
+#include "ble.h"
+#endif
+/*
+ * 传感器驱动与发送协议：
+ * - MAX30101: PPG 采样（I2C + IT/DMA）
+ * - LSM9DS1 : MIMU 采样（SPI + DMA）
+ * - ble_comm: 将 SensorDataFrame_t 打包为固定帧格式
+ */
 #include "MAX30101.h"
 #include "sensor_ringbuffer.h"
-#endif
 #include "LSM9DS1.h"
+#include "ble.h"
+#include "ble_comm.h"
 #include "usbd_cdc_if.h"
 #include <stdio.h>
 #include <string.h>
@@ -49,6 +58,23 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define SENSOR_SEND_BATCH_THRESHOLD (10U)
+#define CYCLE_RAW_DRAIN_LIMIT       (64U)
+/*
+ * PPG 发光电流初始化（MAX30101，单位为寄存器码值，约 0.2mA/LSB）：
+ * - Green 提升以增强绿光通道信号幅度
+ * - Red/IR 维持较低电流用于抑制饱和
+ */
+#define PPG_INIT_GREEN_PA (0x8FU)
+#define PPG_INIT_RED_PA   (0x24U)
+#define PPG_INIT_IR_PA    (0x24U)
+
+#if 0
+/* 旧参数保留用于快速回滚对照。 */
+#define PPG_INIT_GREEN_PA_OLD (0x7FU)
+#define PPG_INIT_RED_PA_OLD   (0x24U)
+#define PPG_INIT_IR_PA_OLD    (0x24U)
+#endif
 
 /* USER CODE END PD */
 
@@ -71,14 +97,48 @@ static uint32_t g_last_master_cmp4_total = 0;
 static uint32_t g_last_tima_out2_rst_total = 0;
 static uint32_t g_last_print_tick = 0;
 static char g_ble_msg[128];
-#endif
 
-static uint32_t g_last_print_tick = 0;
-static char g_usb_msg[192];
-/* MAX30101 调试缓存：当前 MIMU 联调阶段暂不启用。 */
-#if 0
+/* 旧版 PPG DMA 调试缓存：保留用于回退对照，不删除。 */
 static SensorRingBuffer_t g_ppg_rb;
 #endif
+
+static volatile uint32_t g_tim1_tick_count = 0U;
+static volatile uint32_t g_master_cmp4_count = 0U;
+static volatile uint8_t g_tim_group_phase = 1U;
+static volatile uint8_t g_usb_flush_pending = 0U;
+
+/*
+ * 当前生效数据通路：
+ * ISR 生产者：MAX30101/LSM9DS1 DMA 回调 -> RingBuffer_Push()
+ * 主循环消费者：RingBuffer_Pop() -> BLE_PackSingleFrame() -> USB CDC
+ */
+static SensorRingBuffer_t g_sensor_rb;
+static uint8_t g_usb_frame[BLE_COMM_SINGLE_FRAME_SIZE];
+static uint32_t g_last_print_tick = 0U;
+static char g_usb_msg[128];
+
+/*
+ * 旧版“融合后再发”缓存：
+ * - 保留用于快速回滚对照；当前策略改为“每大周期固定发送1帧”，因此不再启用。
+ */
+#if 0
+static SensorDataFrame_t g_fused_frame = {0};
+static uint8_t g_fused_has_ppg = 0U;
+static uint8_t g_fused_has_imu = 0U;
+#endif
+static uint32_t g_cycle_total_count = 0U;
+static uint32_t g_cycle_miss_ppg_count = 0U;
+static uint32_t g_cycle_miss_imu_count = 0U;
+
+/*
+ * 一帧延迟发送管线：
+ * - 当前周期采到的数据先进入 pending；
+ * - 发送时固定发送上一周期 pending（不是最新周期）。
+ */
+static SensorDataFrame_t g_prev_cycle_frame = {0};
+static SensorDataFrame_t g_pending_cycle_frame = {0};
+static uint8_t g_prev_cycle_valid = 0U;
+static uint8_t g_pending_cycle_valid = 0U;
 
 /* USER CODE END PV */
 
@@ -92,13 +152,87 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN 0 */
 /*
  * 程序总体用途（当前调试版本）：
- * 1) 暂时关闭 MAX30101 PPG 调试链路，保留 BLE 与 HRTIM/TIM1 的注释风格。
- * 2) 每 1 秒执行三步 MIMU 调试并通过 USB CDC 输出结果：
- *    - A: 阻塞式 SPI 读取 WHO_AM_I（通信连通性）
- *    - B: 阻塞式 SPI 连续读取 6 轴原始数据（SPI+器件基础功能）
- *    - C: SPI+DMA 读取 6 轴原始数据（DMA链路功能）
- * 3) 保留旧代码块（#if 0 / 注释）用于快速回退和对照，不做删除。
+ * 1) 启用 TIM1(400Hz) -> HRTIM 同步的 4 拍状态机。
+ * 2) 第1拍触发 PPG DMA，第2拍触发 MIMU DMA，第3拍检查 ring buffer 后按 BLE 协议格式通过 USB 发送。
+ * 3) ADC 采样相关调试代码暂不参与本轮流程；旧实现保留在 #if 0 中便于回滚。
  */
+
+#if 0
+/*
+ * 旧版 AD4007 调试辅助：保留用于回滚对照。
+ */
+static float AD4007_CodeToVoltage(int32_t code)
+{
+  return ((float)code * AD4007_VREF) / (float)AD4007_SIGN_BIT_18BIT;
+}
+#endif
+
+/* 判断当前出队帧是否包含有效 PPG 数据。 */
+static uint8_t FrameHasPPGPayload(const SensorDataFrame_t *frame)
+{
+  if ((frame->ppg_data[0] != 0U) || (frame->ppg_data[1] != 0U) || (frame->ppg_data[2] != 0U))
+  {
+    return 1U;
+  }
+  return 0U;
+}
+
+/* 判断当前出队帧是否包含有效 MIMU 数据。 */
+static uint8_t FrameHasIMUPayload(const SensorDataFrame_t *frame)
+{
+  if ((frame->imu_data[0] != 0) || (frame->imu_data[1] != 0) || (frame->imu_data[2] != 0) ||
+      (frame->imu_data[3] != 0) || (frame->imu_data[4] != 0) || (frame->imu_data[5] != 0))
+  {
+    return 1U;
+  }
+  return 0U;
+}
+
+/*
+ * 若待发送帧 PPG 全0，则尝试用“上下两帧”的 PPG 做均值修复：
+ * - 上一帧：prev_frame
+ * - 下一帧：next_frame（当前最新采到但尚未发送的帧）
+ * 仅当上下两帧都含有效 PPG 时执行替换。
+ */
+static void PatchZeroPPGWithNeighborAverage(SensorDataFrame_t *out_frame,
+                                            const SensorDataFrame_t *prev_frame,
+                                            const SensorDataFrame_t *next_frame)
+{
+  uint32_t sum;
+
+  if ((out_frame == NULL) || (prev_frame == NULL) || (next_frame == NULL))
+  {
+    return;
+  }
+
+  if (FrameHasPPGPayload(out_frame) != 0U)
+  {
+    return;
+  }
+
+  if ((FrameHasPPGPayload(prev_frame) == 0U) || (FrameHasPPGPayload(next_frame) == 0U))
+  {
+    return;
+  }
+
+  sum = prev_frame->ppg_data[0] + next_frame->ppg_data[0];
+  out_frame->ppg_data[0] = (sum >> 1);
+  sum = prev_frame->ppg_data[1] + next_frame->ppg_data[1];
+  out_frame->ppg_data[1] = (sum >> 1);
+  sum = prev_frame->ppg_data[2] + next_frame->ppg_data[2];
+  out_frame->ppg_data[2] = (sum >> 1);
+}
+
+#if 0
+/*
+ * 旧版“发送前补读一次DMA”逻辑：保留用于回滚对照。
+ */
+static void RefillPPGOnceBeforeSendIfNeeded(SensorDataFrame_t *cycle_frame,
+                                            uint8_t *has_ppg,
+                                            uint8_t *has_imu)
+{
+}
+#endif
 
 #if 0
 /*
@@ -158,6 +292,7 @@ static uint8_t PPG_ReadOneSample_DirectI2C(uint32_t *green, uint32_t *red, uint3
 }
 #endif
 
+#if 0
 static int16_t MIMU_AssembleInt16LE(uint8_t low_byte, uint8_t high_byte)
 {
   /*
@@ -244,6 +379,7 @@ static HAL_StatusTypeDef MIMU_ReadBurst_Blocking(LSM9DS1_RawData_t *raw)
 
   return HAL_OK;
 }
+#endif
 
 /* USER CODE END 0 */
 
@@ -275,6 +411,10 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
+  /*
+   * 下方为 CubeMX 默认生成的外设初始化调用清单。
+   * 真实启用顺序在 USER CODE BEGIN 2 内按当前调试架构手动安排。
+   */
   // MX_GPIO_Init();
   // MX_DMA_Init();
   // MX_HRTIM1_Init();
@@ -345,81 +485,16 @@ int main(void)
   // (void)BLE_Transmit_Data_DMA((uint8_t *)g_ble_msg, (uint16_t)strlen(g_ble_msg));
 #endif
 
+#if 0
   /*
-   * 当前启用的初始化流程：
-    * - 当前是 MIMU 调试模式：启用 GPIO/DMA/SPI1/USART/USB。
-    * - I2C3/HRTIM/TIM1/BLE 保留注释，避免引入额外干扰。
+   * 旧版 AD4007 调试初始化流程：保留用于回滚。
    */
   MX_GPIO_Init();
   MX_DMA_Init();
-  // MX_I2C3_Init();
-  MX_SPI1_Init();
+  MX_SPI3_Init();
   MX_USART1_UART_Init();
-  // MX_HRTIM1_Init();
-  // MX_TIM1_Init();
   MX_USB_Device_Init();
-
-  /*
-   * PPG/MIMU 电源上电时序：
-   * - 先开 E5V，再开 E3.3V/E4V，每步留 50ms 建立时间
-   * - 避免传感器在电源未稳定时读写寄存器导致总线异常
-   */
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_7, GPIO_PIN_SET);  // E5V
-  HAL_Delay(50);
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8, GPIO_PIN_SET);  // E3.3V
-  HAL_Delay(50);
-  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET); // E4V
-  HAL_Delay(50); // 等待电源稳定
-
-  // if (BLE_Init() != HAL_OK)
-  // {
-  //   Error_Handler();
-  // }
-
-#if 0
-  /* 绑定 ring buffer 给 MAX30101 DMA 回调，用于主循环取样观测。 */
-  RingBuffer_Init(&g_ppg_rb);
-  MAX30101_AttachRingBuffer(&g_ppg_rb);
-
-  /* 设备初始化：校验 PartID、软复位、寄存器默认配置。 */
-  if (MAX30101_Init() == 0U)
-  {
-    Error_Handler();
-  }
-
-  /*
-   * 重配置为调试目标模式：
-   * - 三光路轮切：Green -> Red -> IR
-   * - 8 次平均（降低噪声）
-   * - SR=0x00（驱动接口对应最低采样档）
-   * 主循环仍按 1Hz 输出观测结果，不等同于传感器内部 ODR。
-   */
-  if (MAX30101_SetLEDMode(MAX30101_LED_MODE_MULTI_G_R_IR,
-                          MAX30101_DEFAULT_LED_GREEN_PA,
-                          MAX30101_DEFAULT_LED_RED_PA,
-                          MAX30101_DEFAULT_LED_IR_PA,
-                          0x00U,
-                          0x03U) == 0U)
-  {
-    Error_Handler();
-  }
-#endif
-
-  /*
-   * LSM9DS1_Init() 内部已完成与底层寄存器的关键对应：
-   * 1) WHO_AM_I(0x0F) 读取并校验 0x68
-   * 2) CTRL_REG8(0x22) 写 0x05 软复位，再写 0x44 开 BDU/地址自增
-   * 3) CTRL_REG9/FIFO_CTRL/INT1_CTRL 关闭 FIFO 与中断
-   * 4) CTRL_REG1_G/3_G/6_XL/7_XL 写入 119Hz + 目标量程/滤波配置
-   */
-  /*
-   * 调用驱动初始化入口：
-   * - 函数: LSM9DS1_Init()
-   * - 作用: 完成 WHO_AM_I 校验、CTRL_REG8/9、FIFO_CTRL、INT1_CTRL、
-   *         CTRL_REG1_G/3_G/6_XL/7_XL 一次性配置
-   * - 实际意义: 上电后先把器件状态固定到“可预测的轮询采集模式”
-   */
-  if (LSM9DS1_Init() != HAL_OK)
+  if (AD4007_Init() != HAL_OK)
   {
     Error_Handler();
   }
@@ -427,8 +502,124 @@ int main(void)
   HAL_Delay(2000);
   /* USB 启动提示：便于串口工具中确认程序已进入调试模式。 */
   (void)snprintf(g_usb_msg, sizeof(g_usb_msg),
-                 "MIMU debug start: WHO_AM_I + SPI + SPI_DMA, report=1Hz\r\n");
+                 "AD4007 debug start: A=SW_CNV+SPI, C=SW_CNV+SPI_DMA, report=1Hz\r\n");
   (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+#endif
+
+  /*
+  * 当前启用的初始化流程（生效路径）：
+  * 1) 先初始化 GPIO/DMA/I2C/SPI/TIM/HRTIM/USB。
+  * 2) 按电源时序给传感器上电，避免上电瞬间寄存器读写不稳定。
+  * 3) 绑定 ring buffer，使 PPG/MIMU 异步回调统一写入同一缓冲区。
+  * 4) 完成 PPG/MIMU 设备寄存器配置。
+  * 5) 启动 HRTIM + TIM1，中断驱动 4 拍状态机。
+   */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_I2C3_Init();
+  MX_SPI1_Init();
+  MX_USART1_UART_Init();
+
+  /* BLE 串口链路初始化（复位、波特率同步、进入目标速率）。 */
+  if (BLE_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  MX_HRTIM1_Init();
+  MX_TIM1_Init();
+  MX_USB_Device_Init();
+
+  /* 传感器电源上电顺序：E5V -> E3.3V -> E4V。启动MIMU/PPG/ADC供电 */
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_7, GPIO_PIN_SET);
+  HAL_Delay(50);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8, GPIO_PIN_SET);
+  HAL_Delay(50);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);
+  HAL_Delay(50);
+
+  RingBuffer_Init(&g_sensor_rb);
+  MAX30101_AttachRingBuffer(&g_sensor_rb);
+  LSM9DS1_AttachRingBuffer(&g_sensor_rb);
+
+  /* MAX30101 基础初始化：PartID/软复位/FIFO/LED 模式。 */
+  if (MAX30101_Init() == 0U)
+  {
+    Error_Handler();
+  }
+
+  /*
+   * MAX30101 运行模式：Green/Red/IR 三光路轮切 + 平均配置。
+   * 当前验证目标：
+   * - 保持三路轮切（G/R/IR）
+   * - 100Hz 采样率
+   * - 4 倍过采样
+   * 参数换算：SR=400sps(code=0x03), SMP_AVE=4(code=0x02)，等效 ODR≈400/4=100Hz。
+   */
+  if (MAX30101_SetLEDMode(MAX30101_LED_MODE_MULTI_G_R_IR,
+                          PPG_INIT_GREEN_PA,
+                          PPG_INIT_RED_PA,
+                          PPG_INIT_IR_PA,
+                          0x03U,
+                          0x02U) == 0U)
+  {
+    Error_Handler();
+  }
+
+#if 0
+  /* 旧参数保留用于回滚：SR=3200/AVE=4，等效约 800Hz。 */
+  if (MAX30101_SetLEDMode(MAX30101_LED_MODE_MULTI_G_R_IR,
+                          PPG_INIT_GREEN_PA,
+                          PPG_INIT_RED_PA,
+                          PPG_INIT_IR_PA,
+                          0x07U,
+                          0x02U) == 0U)
+  {
+    Error_Handler();
+  }
+#endif
+
+  /* LSM9DS1 基础初始化：WHO_AM_I + 工作寄存器配置。 */
+  if (LSM9DS1_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* 启动 HRTIM 主定时器与 TimerA，等待 TIM1_TRGO 同步触发。 */
+  if (HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  __HAL_HRTIM_MASTER_CLEAR_IT(&hhrtim1,
+                              HRTIM_MASTER_IT_MCMP4 |
+                              HRTIM_MASTER_IT_MUPD |
+                              HRTIM_MASTER_IT_MREP |
+                              HRTIM_MASTER_IT_SYNC);
+  __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
+                             HRTIM_TIMERINDEX_TIMER_A,
+                             HRTIM_TIM_IT_RST2);
+
+  /* 清 pending，避免上电残留中断状态导致首拍异常。 */
+  NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
+  NVIC_ClearPendingIRQ(HRTIM1_TIMA_IRQn);
+
+  /* 仅打开本轮调试必需中断：Master CMP4 与 TimerA RST2。 */
+  __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1, HRTIM_MASTER_IT_MCMP4);
+  __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_TIM_IT_RST2);
+
+  HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
+  HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
+
+  if (HAL_TIM_Base_Start_IT(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* 启动提示：通过 BLE 链路确认固件已进入新调试架构。 */
+  (void)snprintf(g_usb_msg, sizeof(g_usb_msg),
+                 "TIM1+HRTIM start: phase1=PPG, phase2=MIMU, phase3=BLE\r\n");
+  (void)BLE_Transmit_Data_DMA((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
 
   g_last_print_tick = HAL_GetTick();
   /* USER CODE END 2 */
@@ -440,10 +631,13 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    uint8_t need_flush = 0U;
     uint32_t now = HAL_GetTick();
+    (void)now;
+
+#if 0
     if ((now - g_last_print_tick) >= 1000U)
     {
-#if 0
       /* 旧版本统计与BLE/USB双发：保留用于回退对照，不删除 */
       uint32_t total_tim1;
       uint32_t total_master_cmp4;
@@ -465,298 +659,408 @@ int main(void)
 
       int len = snprintf(g_ble_msg,
                          sizeof(g_ble_msg),
-              "TIM1:%lu/s(%lu) MCMP4:%lu/s(%lu) TA_O2RST:%lu/s(%lu)\r\n",
+                         "TIM1:%lu/s(%lu) MCMP4:%lu/s(%lu) TA_O2RST:%lu/s(%lu)\r\n",
                          (unsigned long)per_sec_tim1,
                          (unsigned long)total_tim1,
-             (unsigned long)per_sec_master_cmp4,
-             (unsigned long)total_master_cmp4,
-              (unsigned long)per_sec_tima_out2_rst,
-              (unsigned long)total_tima_out2_rst);
+                         (unsigned long)per_sec_master_cmp4,
+                         (unsigned long)total_master_cmp4,
+                         (unsigned long)per_sec_tima_out2_rst,
+                         (unsigned long)total_tima_out2_rst);
       if (len > 0)
       {
         (void)BLE_Transmit_Data_DMA((uint8_t *)g_ble_msg, (uint16_t)len);
         /* USB CDC 非阻塞对比发送：BUSY 时直接返回，不影响主循环节拍。 */
         (void)CDC_Transmit_FS2((uint8_t *)g_ble_msg, (uint16_t)len);
       }
-#endif
 
-#if 0
       /* 旧版本 PPG 1Hz 双路径调试：完整保留，便于后续快速回滚。 */
-      uint32_t green = 0U;
-      uint32_t red = 0U;
-      uint32_t ir = 0U;
-      uint8_t wr_ptr = 0U;
-      uint8_t rd_ptr = 0U;
-      uint8_t direct_ret;
-      HAL_StatusTypeDef ppg_dma_start_ret;
-      const MAX30101_RuntimeState_t *ppg_rt;
-      uint32_t ppg_dma_ok_before;
-      uint32_t ppg_dma_err_before;
-      uint32_t ppg_wait_begin;
-      SensorDataFrame_t dma_frame = {0};
-      uint8_t dma_got_sample = 0U;
-
-      /* 统一 1Hz 节拍。 */
-      g_last_print_tick = now;
-
-      /* A) 直接 I2C 读取：先验证基础总线读写与FIFO数据格式是否正确。 */
-      direct_ret = PPG_ReadOneSample_DirectI2C(&green, &red, &ir, &wr_ptr, &rd_ptr);
-      if (direct_ret == 1U)
       {
-        (void)snprintf(g_usb_msg,
-                       sizeof(g_usb_msg),
-                       "[I2C ] OK wr=%u rd=%u G=%lu R=%lu IR=%lu\r\n",
-                       (unsigned int)wr_ptr,
-                       (unsigned int)rd_ptr,
-                       (unsigned long)green,
-                       (unsigned long)red,
-                       (unsigned long)ir);
-      }
-      else if (direct_ret == 2U)
-      {
-        (void)snprintf(g_usb_msg,
-                       sizeof(g_usb_msg),
-                       "[I2C ] EMPTY wr=%u rd=%u\r\n",
-                       (unsigned int)wr_ptr,
-                       (unsigned int)rd_ptr);
-      }
-      else
-      {
-        (void)snprintf(g_usb_msg,
-                       sizeof(g_usb_msg),
-                       "[I2C ] FAIL reg/fifo read error\r\n");
-      }
-      (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+        uint32_t green = 0U;
+        uint32_t red = 0U;
+        uint32_t ir = 0U;
+        uint8_t wr_ptr = 0U;
+        uint8_t rd_ptr = 0U;
+        uint8_t direct_ret;
+        HAL_StatusTypeDef ppg_dma_start_ret;
+        const MAX30101_RuntimeState_t *ppg_rt;
+        uint32_t ppg_dma_ok_before;
+        uint32_t ppg_dma_err_before;
+        uint32_t ppg_wait_begin;
+        SensorDataFrame_t dma_frame = {0};
+        uint8_t dma_got_sample = 0U;
 
-      /*
-       * B) I2C+DMA 读取：
-       * - 触发异步状态机读取 WR/RD 指针并发起 FIFO DMA。
-       * - 主循环短等待 busy 结束后，从 ring buffer 取样并输出。
-       */
-      ppg_rt = MAX30101_GetRuntimeState();
-      ppg_dma_ok_before = ppg_rt->dma_read_ok_count;
-      ppg_dma_err_before = ppg_rt->i2c_error_count;
-      ppg_dma_start_ret = MAX30101_TriggerPointerRead_IT();
-
-      if (ppg_dma_start_ret == HAL_OK)
-      {
-        ppg_wait_begin = HAL_GetTick();
-        /* 限时等待避免主循环卡死；300ms 足够覆盖一次异步读取流程。 */
-        while ((MAX30101_GetRuntimeState()->busy != 0U) && ((HAL_GetTick() - ppg_wait_begin) < 300U))
+        /* A) 直接 I2C 读取：先验证基础总线读写与FIFO数据格式是否正确。 */
+        direct_ret = PPG_ReadOneSample_DirectI2C(&green, &red, &ir, &wr_ptr, &rd_ptr);
+        if (direct_ret == 1U)
         {
-        }
-
-        if (RingBuffer_Pop(&g_ppg_rb, &dma_frame))
-        {
-          dma_got_sample = 1U;
-        }
-
-        ppg_rt = MAX30101_GetRuntimeState();
-        if (dma_got_sample != 0U)
-        {
-          /* 成功弹出一帧 DMA 数据。 */
           (void)snprintf(g_usb_msg,
                          sizeof(g_usb_msg),
-                         "[DMA ] OK G=%lu R=%lu IR=%lu dma_ok=%lu err=%lu\r\n",
-                         (unsigned long)dma_frame.ppg_data[0],
-                         (unsigned long)dma_frame.ppg_data[1],
-                         (unsigned long)dma_frame.ppg_data[2],
-                         (unsigned long)ppg_rt->dma_read_ok_count,
-                         (unsigned long)ppg_rt->i2c_error_count);
+                         "[I2C ] OK wr=%u rd=%u G=%lu R=%lu IR=%lu\r\n",
+                         (unsigned int)wr_ptr,
+                         (unsigned int)rd_ptr,
+                         (unsigned long)green,
+                         (unsigned long)red,
+                         (unsigned long)ir);
         }
-        else if ((ppg_rt->dma_read_ok_count > ppg_dma_ok_before) || (ppg_rt->i2c_error_count != ppg_dma_err_before))
+        else if (direct_ret == 2U)
         {
-          /* DMA流程走完但未取到帧，输出状态计数辅助定位。 */
           (void)snprintf(g_usb_msg,
                          sizeof(g_usb_msg),
-                         "[DMA ] DONE no sample pop, ptr_ok=%lu dma_ok=%lu empty=%lu err=%lu\r\n",
-                         (unsigned long)ppg_rt->ptr_read_ok_count,
-                         (unsigned long)ppg_rt->dma_read_ok_count,
-                         (unsigned long)ppg_rt->skip_empty_count,
-                         (unsigned long)ppg_rt->i2c_error_count);
+                         "[I2C ] EMPTY wr=%u rd=%u\r\n",
+                         (unsigned int)wr_ptr,
+                         (unsigned int)rd_ptr);
         }
         else
         {
-          /* 既无计数变化也无样本，判为超时。 */
           (void)snprintf(g_usb_msg,
                          sizeof(g_usb_msg),
-                         "[DMA ] TIMEOUT busy=%u ptr_stage=%u err=%lu\r\n",
-                         (unsigned int)ppg_rt->busy,
-                         (unsigned int)ppg_rt->ptr_stage,
-                         (unsigned long)ppg_rt->i2c_error_count);
+                         "[I2C ] FAIL reg/fifo read error\r\n");
         }
-      }
-      else
-      {
-        /* 触发入口返回 BUSY/FAIL，通常表示 I2C 仍忙或前次流程未释放。 */
-        (void)snprintf(g_usb_msg,
-                       sizeof(g_usb_msg),
-                       "[DMA ] START BUSY/FAIL ret=%d i2c_state=%d\r\n",
-                       (int)ppg_dma_start_ret,
-                       (int)hi2c3.State);
-      }
+        (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
 
-      (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
-#endif
-
-      uint8_t who = 0U;
-      LSM9DS1_RawData_t direct_raw = {0};
-      LSM9DS1_RawData_t dma_raw = {0};
-      HAL_StatusTypeDef step_ret;
-      HAL_StatusTypeDef dma_start_ret;
-      const LSM9DS1_RuntimeState_t *rt;
-      uint32_t dma_ok_before;
-      uint32_t dma_err_before;
-      uint32_t wait_begin;
-
-      /* 统一 1Hz 节拍。 */
-      g_last_print_tick = now;
-
-      /*
-       * A) WHO_AM_I 通信体检
-       * 目标：只验证“命令字 + 片选时序 + SPI收发”是否正确。
-       * 预期：读取值固定 0x68。
-       * 若 FAIL/UNEXPECTED：优先排查 SPI 模式(Mode3)、CS 引脚、供电与连线。
-       */
-      step_ret = MIMU_ReadWhoAmI_Blocking(&who);
-      if (step_ret == HAL_OK)
-      {
-        (void)snprintf(g_usb_msg,
-                       sizeof(g_usb_msg),
-                       "[MIMU-A] WHO_AM_I=0x%02X %s\r\n",
-                       (unsigned int)who,
-                       (who == LSM9DS1_WHO_AM_I_VALUE) ? "OK" : "UNEXPECTED");
-      }
-      else
-      {
-        (void)snprintf(g_usb_msg,
-                       sizeof(g_usb_msg),
-                       "[MIMU-A] WHO_AM_I read FAIL\r\n");
-      }
-      (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
-
-      /*
-       * B) 阻塞式 SPI 连续读取 6 轴
-       * 对应底层寄存器：
-       * - 起始 0x18(OUT_X_L_G)，随后取 Gx/Gy/Gz
-       * - 自动跨区到 0x28(OUT_X_L_XL)，再取 Ax/Ay/Az
-       * 目标：确认“传感器本体在出数”，不仅仅是 WHO_AM_I 可读。
-       */
-      step_ret = MIMU_ReadBurst_Blocking(&direct_raw);
-      if (step_ret == HAL_OK)
-      {
-        (void)snprintf(g_usb_msg,
-                       sizeof(g_usb_msg),
-                       "[MIMU-B] SPI gx=%d gy=%d gz=%d ax=%d ay=%d az=%d\r\n",
-                       (int)direct_raw.gx,
-                       (int)direct_raw.gy,
-                       (int)direct_raw.gz,
-                       (int)direct_raw.ax,
-                       (int)direct_raw.ay,
-                       (int)direct_raw.az);
-      }
-      else
-      {
-        (void)snprintf(g_usb_msg,
-                       sizeof(g_usb_msg),
-                       "[MIMU-B] SPI burst read FAIL\r\n");
-      }
-      (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
-
-      /*
-       * C) SPI+DMA 读取
-       * 调用 LSM9DS1_TriggerRead_IT() 发起非阻塞 DMA 事务：
-       * - 成功完成后在 HAL_SPI_TxRxCpltCallback 中累计 dma_ok_count
-       * - 出错则在 HAL_SPI_ErrorCallback 中累计 dma_error_count
-       * 这里通过前后计数差判断本秒 DMA 是否真正跑通。
-       */
-      /*
-       * 获取 DMA 运行态快照：
-       * - dma_ok_count: 成功完成次数
-       * - dma_error_count: 错误次数
-       * 通过“前后差分”判断本秒触发是否真正执行到回调。
-       */
-      rt = LSM9DS1_GetRuntimeState();
-      dma_ok_before = rt->dma_ok_count;
-      dma_err_before = rt->dma_error_count;
-
-      /*
-       * 发起一次 SPI1+DMA 连续读：
-       * - 函数: LSM9DS1_TriggerRead_IT()
-       * - 底层: 发送 0x98 + 12 字节 dummy，回收 12 字节六轴原始值
-       * - 若返回 HAL_BUSY: 说明 SPI 或驱动仍在忙态
-       */
-      dma_start_ret = LSM9DS1_TriggerRead_IT();
-
-      if (dma_start_ret == HAL_OK)
-      {
-        wait_begin = HAL_GetTick();
         /*
-         * 限时轮询 100ms：
-         * - 若计数变化，说明 DMA 回调已触发
-         * - 若超时无变化，说明 DMA 可能未起传/中断未进/总线阻塞
+         * B) I2C+DMA 读取：
+         * - 触发异步状态机读取 WR/RD 指针并发起 FIFO DMA。
+         * - 主循环短等待 busy 结束后，从 ring buffer 取样并输出。
          */
-        while ((HAL_GetTick() - wait_begin) < 100U)
+        ppg_rt = MAX30101_GetRuntimeState();
+        ppg_dma_ok_before = ppg_rt->dma_read_ok_count;
+        ppg_dma_err_before = ppg_rt->i2c_error_count;
+        ppg_dma_start_ret = MAX30101_TriggerPointerRead_IT();
+
+        if (ppg_dma_start_ret == HAL_OK)
         {
-          rt = LSM9DS1_GetRuntimeState();
-          if ((rt->dma_ok_count > dma_ok_before) || (rt->dma_error_count != dma_err_before))
+          ppg_wait_begin = HAL_GetTick();
+          while ((MAX30101_GetRuntimeState()->busy != 0U) && ((HAL_GetTick() - ppg_wait_begin) < 300U))
           {
-            break;
+          }
+
+          if (RingBuffer_Pop(&g_ppg_rb, &dma_frame))
+          {
+            dma_got_sample = 1U;
+          }
+
+          ppg_rt = MAX30101_GetRuntimeState();
+          if (dma_got_sample != 0U)
+          {
+            (void)snprintf(g_usb_msg,
+                           sizeof(g_usb_msg),
+                           "[DMA ] OK G=%lu R=%lu IR=%lu dma_ok=%lu err=%lu\r\n",
+                           (unsigned long)dma_frame.ppg_data[0],
+                           (unsigned long)dma_frame.ppg_data[1],
+                           (unsigned long)dma_frame.ppg_data[2],
+                           (unsigned long)ppg_rt->dma_read_ok_count,
+                           (unsigned long)ppg_rt->i2c_error_count);
+          }
+          else if ((ppg_rt->dma_read_ok_count > ppg_dma_ok_before) || (ppg_rt->i2c_error_count != ppg_dma_err_before))
+          {
+            (void)snprintf(g_usb_msg,
+                           sizeof(g_usb_msg),
+                           "[DMA ] DONE no sample pop, ptr_ok=%lu dma_ok=%lu empty=%lu err=%lu\r\n",
+                           (unsigned long)ppg_rt->ptr_read_ok_count,
+                           (unsigned long)ppg_rt->dma_read_ok_count,
+                           (unsigned long)ppg_rt->skip_empty_count,
+                           (unsigned long)ppg_rt->i2c_error_count);
+          }
+          else
+          {
+            (void)snprintf(g_usb_msg,
+                           sizeof(g_usb_msg),
+                           "[DMA ] TIMEOUT busy=%u ptr_stage=%u err=%lu\r\n",
+                           (unsigned int)ppg_rt->busy,
+                           (unsigned int)ppg_rt->ptr_stage,
+                           (unsigned long)ppg_rt->i2c_error_count);
           }
         }
-
-        rt = LSM9DS1_GetRuntimeState();
-        if (rt->dma_ok_count > dma_ok_before)
+        else
         {
-          /* DMA 成功后读取驱动内最新解包结果（与阻塞读格式一致）。 */
-          /*
-           * 读取驱动内部“最近一次 DMA 解包结果”：
-           * - 数据来自 LSM9DS1_SPI_TxRxCpltHandler() -> LSM9DS1_ProcessDmaRxData()
-           * - 格式顺序固定为 Gx/Gy/Gz/Ax/Ay/Az
-           */
-          LSM9DS1_GetLatestRaw(&dma_raw);
           (void)snprintf(g_usb_msg,
                          sizeof(g_usb_msg),
-                         "[MIMU-C] DMA OK gx=%d gy=%d gz=%d ax=%d ay=%d az=%d ok=%lu err=%lu busy_drop=%lu\r\n",
-                         (int)dma_raw.gx,
-                         (int)dma_raw.gy,
-                         (int)dma_raw.gz,
-                         (int)dma_raw.ax,
-                         (int)dma_raw.ay,
-                         (int)dma_raw.az,
-                         (unsigned long)rt->dma_ok_count,
-                         (unsigned long)rt->dma_error_count,
-                         (unsigned long)rt->trigger_busy_count);
+                         "[DMA ] START BUSY/FAIL ret=%d i2c_state=%d\r\n",
+                         (int)ppg_dma_start_ret,
+                         (int)hi2c3.State);
         }
-        else if (rt->dma_error_count != dma_err_before)
+
+        (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+      }
+
+      /* 旧版 MIMU 每秒调试流程：保留用于回退对照，不删除。 */
+      {
+        uint8_t who = 0U;
+        LSM9DS1_RawData_t direct_raw = {0};
+        LSM9DS1_RawData_t dma_raw = {0};
+        HAL_StatusTypeDef step_ret;
+        HAL_StatusTypeDef dma_start_ret;
+        const LSM9DS1_RuntimeState_t *rt;
+        uint32_t dma_ok_before;
+        uint32_t dma_err_before;
+        uint32_t wait_begin;
+
+        step_ret = MIMU_ReadWhoAmI_Blocking(&who);
+        if (step_ret == HAL_OK)
         {
           (void)snprintf(g_usb_msg,
                          sizeof(g_usb_msg),
-                         "[MIMU-C] DMA ERROR ok=%lu err=%lu\r\n",
-                         (unsigned long)rt->dma_ok_count,
-                         (unsigned long)rt->dma_error_count);
+                         "[MIMU-A] WHO_AM_I=0x%02X %s\r\n",
+                         (unsigned int)who,
+                         (who == LSM9DS1_WHO_AM_I_VALUE) ? "OK" : "UNEXPECTED");
         }
         else
         {
           (void)snprintf(g_usb_msg,
                          sizeof(g_usb_msg),
-                         "[MIMU-C] DMA TIMEOUT ok=%lu err=%lu busy=%u\r\n",
-                         (unsigned long)rt->dma_ok_count,
-                         (unsigned long)rt->dma_error_count,
-                         (unsigned int)rt->dma_busy);
+                         "[MIMU-A] WHO_AM_I read FAIL\r\n");
         }
+        (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+
+        step_ret = MIMU_ReadBurst_Blocking(&direct_raw);
+        if (step_ret == HAL_OK)
+        {
+          (void)snprintf(g_usb_msg,
+                         sizeof(g_usb_msg),
+                         "[MIMU-B] SPI gx=%d gy=%d gz=%d ax=%d ay=%d az=%d\r\n",
+                         (int)direct_raw.gx,
+                         (int)direct_raw.gy,
+                         (int)direct_raw.gz,
+                         (int)direct_raw.ax,
+                         (int)direct_raw.ay,
+                         (int)direct_raw.az);
+        }
+        else
+        {
+          (void)snprintf(g_usb_msg,
+                         sizeof(g_usb_msg),
+                         "[MIMU-B] SPI burst read FAIL\r\n");
+        }
+        (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+
+        rt = LSM9DS1_GetRuntimeState();
+        dma_ok_before = rt->dma_ok_count;
+        dma_err_before = rt->dma_error_count;
+        dma_start_ret = LSM9DS1_TriggerRead_IT();
+
+        if (dma_start_ret == HAL_OK)
+        {
+          wait_begin = HAL_GetTick();
+          while ((HAL_GetTick() - wait_begin) < 100U)
+          {
+            rt = LSM9DS1_GetRuntimeState();
+            if ((rt->dma_ok_count > dma_ok_before) || (rt->dma_error_count != dma_err_before))
+            {
+              break;
+            }
+          }
+
+          rt = LSM9DS1_GetRuntimeState();
+          if (rt->dma_ok_count > dma_ok_before)
+          {
+            LSM9DS1_GetLatestRaw(&dma_raw);
+            (void)snprintf(g_usb_msg,
+                           sizeof(g_usb_msg),
+                           "[MIMU-C] DMA OK gx=%d gy=%d gz=%d ax=%d ay=%d az=%d ok=%lu err=%lu busy_drop=%lu\r\n",
+                           (int)dma_raw.gx,
+                           (int)dma_raw.gy,
+                           (int)dma_raw.gz,
+                           (int)dma_raw.ax,
+                           (int)dma_raw.ay,
+                           (int)dma_raw.az,
+                           (unsigned long)rt->dma_ok_count,
+                           (unsigned long)rt->dma_error_count,
+                           (unsigned long)rt->trigger_busy_count);
+          }
+          else if (rt->dma_error_count != dma_err_before)
+          {
+            (void)snprintf(g_usb_msg,
+                           sizeof(g_usb_msg),
+                           "[MIMU-C] DMA ERROR ok=%lu err=%lu\r\n",
+                           (unsigned long)rt->dma_ok_count,
+                           (unsigned long)rt->dma_error_count);
+          }
+          else
+          {
+            (void)snprintf(g_usb_msg,
+                           sizeof(g_usb_msg),
+                           "[MIMU-C] DMA TIMEOUT ok=%lu err=%lu busy=%u\r\n",
+                           (unsigned long)rt->dma_ok_count,
+                           (unsigned long)rt->dma_error_count,
+                           (unsigned int)rt->dma_busy);
+          }
+        }
+        else
+        {
+          (void)snprintf(g_usb_msg,
+                         sizeof(g_usb_msg),
+                         "[MIMU-C] DMA START BUSY/FAIL ret=%d spi_state=%d\r\n",
+                         (int)dma_start_ret,
+                         (int)hspi1.State);
+        }
+
+        (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+      }
+
+      /* 旧版 AD4007 每秒调试流程：保留用于回退对照，不删除。 */
+      {
+        int32_t adc_code_spi = 0;
+        int32_t adc_code_dma = 0;
+        float adc_voltage_spi = 0.0f;
+        float adc_voltage_dma = 0.0f;
+        HAL_StatusTypeDef step_ret;
+
+        step_ret = AD4007_test_Rx(&adc_code_spi);
+        if (step_ret == HAL_OK)
+        {
+          adc_voltage_spi = AD4007_CodeToVoltage(adc_code_spi);
+          (void)snprintf(g_usb_msg,
+                         sizeof(g_usb_msg),
+                         "[AD4007-A] SPI OK voltage=%.6f V\r\n",
+                         (double)adc_voltage_spi);
+        }
+        else
+        {
+          (void)snprintf(g_usb_msg,
+                         sizeof(g_usb_msg),
+                         "[AD4007-A] SPI FAIL ret=%d\r\n",
+                         (int)step_ret);
+        }
+        (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+
+        step_ret = AD4007_test_DMA_Rx(&adc_code_dma, 20U);
+        if (step_ret == HAL_OK)
+        {
+          adc_voltage_dma = AD4007_CodeToVoltage(adc_code_dma);
+          (void)snprintf(g_usb_msg,
+                         sizeof(g_usb_msg),
+                         "[AD4007-C] DMA OK voltage=%.6f V spi_state=%d\r\n",
+                         (double)adc_voltage_dma,
+                         (int)hspi3.State);
+        }
+        else
+        {
+          (void)snprintf(g_usb_msg,
+                         sizeof(g_usb_msg),
+                         "[AD4007-C] DMA FAIL ret=%d spi_state=%d\r\n",
+                         (int)step_ret,
+                         (int)hspi3.State);
+        }
+        (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+      }
+    }
+#endif
+
+  /*
+   * 中断到主循环的“轻量信号传递”：
+   * - ISR 只置位 g_usb_flush_pending
+   * - 主循环读取并清除标志，再执行相对耗时的 USB 发送
+   * 这样可避免在中断上下文做 CDC 发送造成阻塞与抖动。
+   */
+    __disable_irq();
+    if (g_usb_flush_pending != 0U)
+    {
+      g_usb_flush_pending = 0U;
+      need_flush = 1U;
+    }
+    __enable_irq();
+
+    /*
+     * 批量发送窗口：
+     * 每次最多发送 SENSOR_SEND_BATCH_THRESHOLD 帧，
+     * 避免单次循环占用过久影响系统实时性。
+     */
+    if (need_flush != 0U)
+    {
+      SensorDataFrame_t frame;
+      SensorDataFrame_t cycle_frame = {0};
+      uint16_t raw_pop_count = 0U;
+      uint8_t has_ppg = 0U;
+      uint8_t has_imu = 0U;
+
+      /*
+       * 每个大周期仅发送 1 帧：
+       * - 把 ringbuffer 当前残留半帧全部“吸收并覆盖到最新值”
+       * - 仅保留本周期最终用于发送的融合结果
+       * - 其余状态机1/2半帧不直接发送
+       */
+      while (raw_pop_count < CYCLE_RAW_DRAIN_LIMIT)
+      {
+        if (!RingBuffer_Pop(&g_sensor_rb, &frame))
+        {
+          break;
+        }
+        raw_pop_count++;
+
+        /* 捕获 PPG 半帧（若多次到达则保留最新一次）。 */
+        if (FrameHasPPGPayload(&frame) != 0U)
+        {
+          cycle_frame.ppg_data[0] = frame.ppg_data[0];
+          cycle_frame.ppg_data[1] = frame.ppg_data[1];
+          cycle_frame.ppg_data[2] = frame.ppg_data[2];
+          has_ppg = 1U;
+        }
+
+        /* 捕获 MIMU 半帧（若多次到达则保留最新一次）。 */
+        if (FrameHasIMUPayload(&frame) != 0U)
+        {
+          cycle_frame.imu_data[0] = frame.imu_data[0];
+          cycle_frame.imu_data[1] = frame.imu_data[1];
+          cycle_frame.imu_data[2] = frame.imu_data[2];
+          cycle_frame.imu_data[3] = frame.imu_data[3];
+          cycle_frame.imu_data[4] = frame.imu_data[4];
+          cycle_frame.imu_data[5] = frame.imu_data[5];
+          has_imu = 1U;
+        }
+      }
+
+      g_cycle_total_count++;
+      if (has_ppg == 0U)
+      {
+        g_cycle_miss_ppg_count++;
+      }
+      if (has_imu == 0U)
+      {
+        g_cycle_miss_imu_count++;
+      }
+
+      /*
+       * 发送策略（1 帧延迟）：
+       * - 当前周期融合结果先进入 pending；
+       * - 本次实际发送上一周期 pending（非最新一帧）。
+       * - 若待发送帧 PPG 全0，则用“上下两帧”PPG均值替换。
+       */
+      if (g_pending_cycle_valid != 0U)
+      {
+        SensorDataFrame_t out_frame = g_pending_cycle_frame;
+
+        PatchZeroPPGWithNeighborAverage(&out_frame, &g_prev_cycle_frame, &cycle_frame);
+
+        BLE_PackSingleFrame(&out_frame, g_usb_frame);
+        (void)BLE_Transmit_Data_DMA(g_usb_frame, BLE_COMM_SINGLE_FRAME_SIZE);
+
+        g_prev_cycle_frame = g_pending_cycle_frame;
+        g_prev_cycle_valid = 1U;
       }
       else
       {
-        (void)snprintf(g_usb_msg,
-                       sizeof(g_usb_msg),
-                       "[MIMU-C] DMA START BUSY/FAIL ret=%d spi_state=%d\r\n",
-                       (int)dma_start_ret,
-                       (int)hspi1.State);
+        /* 首帧仅灌入 pending，不立即发送，建立“上一帧发送”管线。 */
+        g_prev_cycle_valid = 0U;
       }
 
-      (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+      g_pending_cycle_frame = cycle_frame;
+      g_pending_cycle_valid = 1U;
     }
+
+    /* 1Hz 心跳日志：用于观察中断节拍与缓存积压趋势。 */
+    // if ((now - g_last_print_tick) >= 1000U)
+    // {
+    //   g_last_print_tick = now;
+    //   (void)snprintf(g_usb_msg,
+    //                  sizeof(g_usb_msg),
+    //                  "TIM1=%lu MCMP4=%lu phase=%u rb=%u\r\n",
+    //                  (unsigned long)g_tim1_tick_count,
+    //                  (unsigned long)g_master_cmp4_count,
+    //                  (unsigned int)g_tim_group_phase,
+    //                  (unsigned int)RingBuffer_GetCount(&g_sensor_rb));
+    //   (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+    // }
   }
   /* USER CODE END 3 */
 }
@@ -808,29 +1112,74 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-// void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-// {
-//   if (htim->Instance == TIM1)
-//   {
-//     g_tim1_isr_count++;
-//   }
-// }
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM1)
+  {
+    /* TIM1 为 400Hz 基准节拍，用于整体时序观测。 */
+    g_tim1_tick_count++;
+  }
+}
 
-// void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
-// {
-//   if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_MASTER))
-//   {
-//     g_master_cmp4_isr_count++;
-//   }
-// }
+void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
+{
+  if ((hhrtim != &hhrtim1) || (TimerIdx != HRTIM_TIMERINDEX_MASTER))
+  {
+    return;
+  }
 
-// void HAL_HRTIM_Output2ResetCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
-// {
-//   if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
-//   {
-//     g_tima_out2_rst_isr_count++;
-//   }
-// }
+  g_master_cmp4_count++;
+
+  /*
+   * 4 拍状态机（每拍由 master CMP4 触发一次）：
+   * - phase1: 触发 PPG 异步读取
+    * - phase2: 触发 MIMU 异步读取
+   * - phase3: 置位发送标志
+   * - phase4: 预留空拍（给异步链路留余量）
+   *
+    * 说明：
+    * 若某周期融合后 PPG 全0，会在主循环发送前补触发一次 PPG DMA 读取做兜底。
+   */
+  switch (g_tim_group_phase)
+  {
+    case 1U:
+      (void)MAX30101_TriggerPointerRead_IT();
+      break;
+
+    case 2U:
+      (void)LSM9DS1_TriggerRead_IT();
+      break;
+
+    case 3U:
+      /*
+       * 本轮验证：phase3 仅发送，不再额外触发 PPG。
+       * 旧逻辑保留用于回滚：
+       */
+    #if 0
+      (void)MAX30101_TriggerPointerRead_IT();
+    #endif
+      g_usb_flush_pending = 1U;
+      break;
+
+    case 4U:
+    default:
+      break;
+  }
+
+  g_tim_group_phase++;
+  if (g_tim_group_phase > 4U)
+  {
+    g_tim_group_phase = 1U;
+  }
+}
+
+void HAL_HRTIM_Output2ResetCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
+{
+  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
+  {
+    /* 预留：TimerA Output2 reset 中断可用于后续 ADC 采样扩展。 */
+  }
+}
 
 /* USER CODE END 4 */
 

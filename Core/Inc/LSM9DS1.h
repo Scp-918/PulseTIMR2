@@ -145,6 +145,9 @@ HAL_StatusTypeDef LSM9DS1_Init(void);
 /* 绑定外部中转帧：DMA 完成后会直接覆盖 imu_data[0..5] */
 void LSM9DS1_AttachFrameBuffer(SensorDataFrame_t *frame);
 
+/* 绑定外部环形缓冲区：DMA 完成后会额外把 imu_data 入队。 */
+void LSM9DS1_AttachRingBuffer(SensorRingBuffer_t *rb);
+
 /* 2) 外部 10ms 主定时器触发入口：发起 13 字节 SPI DMA 读取 */
 HAL_StatusTypeDef LSM9DS1_TriggerRead_IT(void);
 

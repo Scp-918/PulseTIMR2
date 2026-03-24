@@ -236,6 +236,62 @@ HAL_StatusTypeDef AD4007_test_Rx(int32_t *out_code)
 }
 
 /*
+ * SPI+DMA 读取测试函数：
+ * 临时接管 PA9 触发一次转换，然后以 DMA 方式读取 3 字节并解包。
+ */
+HAL_StatusTypeDef AD4007_test_DMA_Rx(int32_t *out_code, uint32_t timeout_ms)
+{
+    HAL_StatusTypeDef ret;
+    uint8_t rx_frame[AD4007_FRAME_BYTES] = {0};
+    uint32_t tick_begin;
+
+    if (out_code == NULL)
+    {
+        return HAL_ERROR;
+    }
+
+    AD4007_PA9_ToGPIO_Output();
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+
+    AD4007_GenerateCnvPulse_SW();
+
+    /*
+     * 主机模式下 DMA 接收必须同时发送 dummy 以产生 SCK。
+     * 这里使用 0xFF 保持 SDI 高电平，避免影响 AD4007 的 CS 模式判定。
+     */
+    ret = HAL_SPI_TransmitReceive_DMA(&hspi3,
+                                      (uint8_t *)AD4007_SPI_TX_DUMMY,
+                                      rx_frame,
+                                      AD4007_FRAME_BYTES);
+    if (ret != HAL_OK)
+    {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+        AD4007_PA9_ToAF13_HRTIM();
+        AD4007_ForceMOSIHigh();
+        return ret;
+    }
+
+    tick_begin = HAL_GetTick();
+    while (hspi3.State != HAL_SPI_STATE_READY)
+    {
+        if ((HAL_GetTick() - tick_begin) >= timeout_ms)
+        {
+            (void)HAL_SPI_Abort(&hspi3);
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+            AD4007_PA9_ToAF13_HRTIM();
+            AD4007_ForceMOSIHigh();
+            return HAL_TIMEOUT;
+        }
+    }
+
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+    AD4007_PA9_ToAF13_HRTIM();
+
+    *out_code = AD4007_DecodeOneSample(rx_frame);
+    return HAL_OK;
+}
+
+/*
  * 启动 SPI3 + DMA 接收：
  * 每个样本固定 3 字节，因此 DMA 长度 = sample_count * 3。
  * 正常工作时 CNV 由 HRTIM 自动脉冲，本函数不进行任何 CNV 翻转。

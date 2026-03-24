@@ -8,7 +8,7 @@
 extern UART_HandleTypeDef huart1;
 
 /*
- * 按需求固定：10 帧批量发送缓存（32B * 10 = 320B）。
+ * 按需求固定：10 帧批量发送缓存（49B * 10 = 490B）。
  * 使用静态全局（文件作用域）避免栈开销，且确保 DMA 发送期间内存稳定。
  */
 static uint8_t ble_tx_buffer[BLE_COMM_BATCH_TX_SIZE] = {0};
@@ -56,7 +56,9 @@ static void BLE_Write16LE_FromS16(int16_t value, uint8_t *dst)
 void BLE_PackSingleFrame(SensorDataFrame_t *frame, uint8_t *out_buffer)
 {
   uint8_t checksum = 0U;
+  uint8_t ch;
   uint8_t idx;
+  uint16_t offset;
 
   if ((frame == NULL) || (out_buffer == NULL))
   {
@@ -70,35 +72,55 @@ void BLE_PackSingleFrame(SensorDataFrame_t *frame, uint8_t *out_buffer)
   out_buffer[BLE_COMM_IDX_HEADER0] = BLE_COMM_FRAME_HEADER_BYTE0;
   out_buffer[BLE_COMM_IDX_HEADER1] = BLE_COMM_FRAME_HEADER_BYTE1;
 
-  /* [2..4] ADC early：取 adc_data[0].early_code 的低 24 位，小端 */
-  BLE_Write24LE_FromS32(frame->adc_data[0].early_code, &out_buffer[BLE_COMM_IDX_ADC_EARLY_L]);
+  /*
+   * [2..25] ADC 区：
+   * - 共 4 通道（adc_data[0..3]）
+   * - 每通道按 early(3B) + late(3B) 排列
+   * - 单通道占 6 字节，总计 24 字节
+   */
+  for (ch = 0U; ch < BLE_COMM_ADC_CHANNEL_COUNT; ch++)
+  {
+    offset = (uint16_t)BLE_COMM_IDX_ADC_START +
+             ((uint16_t)ch * (uint16_t)BLE_COMM_ADC_BYTES_PER_CHANNEL);
 
-  /* [5..7] ADC late：取 adc_data[0].late_code 的低 24 位，小端 */
-  BLE_Write24LE_FromS32(frame->adc_data[0].late_code, &out_buffer[BLE_COMM_IDX_ADC_LATE_L]);
+    BLE_Write24LE_FromS32(frame->adc_data[ch].early_code, &out_buffer[offset]);
+    BLE_Write24LE_FromS32(frame->adc_data[ch].late_code,
+                          &out_buffer[offset + BLE_COMM_ADC_BYTES_PER_VALUE]);
+  }
 
-  /* [8..16] PPG：Green/Red/IR 各 24 位，小端 */
-  BLE_Write24LE_FromU32(frame->ppg_data[0], &out_buffer[8]);
-  BLE_Write24LE_FromU32(frame->ppg_data[1], &out_buffer[11]);
-  BLE_Write24LE_FromU32(frame->ppg_data[2], &out_buffer[14]);
+  /*
+   * [26..34] PPG 区：
+   * - 3 通道（Green/Red/IR）
+   * - 每通道低 24 位小端写入 3 字节
+   */
+  for (ch = 0U; ch < BLE_COMM_PPG_CHANNEL_COUNT; ch++)
+  {
+    offset = (uint16_t)BLE_COMM_IDX_PPG_START +
+             ((uint16_t)ch * (uint16_t)BLE_COMM_PPG_BYTES_PER_CHANNEL);
+    BLE_Write24LE_FromU32(frame->ppg_data[ch], &out_buffer[offset]);
+  }
 
-  /* [17..28] IMU：Gx,Gy,Gz,Ax,Ay,Az 各 16 位，小端 */
-  BLE_Write16LE_FromS16(frame->imu_data[0], &out_buffer[17]);
-  BLE_Write16LE_FromS16(frame->imu_data[1], &out_buffer[19]);
-  BLE_Write16LE_FromS16(frame->imu_data[2], &out_buffer[21]);
-  BLE_Write16LE_FromS16(frame->imu_data[3], &out_buffer[23]);
-  BLE_Write16LE_FromS16(frame->imu_data[4], &out_buffer[25]);
-  BLE_Write16LE_FromS16(frame->imu_data[5], &out_buffer[27]);
+  /*
+   * [35..46] MIMU 区：
+   * - 6 轴（Gx/Gy/Gz/Ax/Ay/Az）
+   * - 每轴 int16 小端写入 2 字节
+   */
+  for (ch = 0U; ch < BLE_COMM_IMU_AXIS_COUNT; ch++)
+  {
+    offset = (uint16_t)BLE_COMM_IDX_IMU_START +
+             ((uint16_t)ch * (uint16_t)BLE_COMM_IMU_BYTES_PER_AXIS);
+    BLE_Write16LE_FromS16(frame->imu_data[ch], &out_buffer[offset]);
+  }
 
-  /* [29] Checksum = XOR([2]..[28])，边界包含 2 和 28。 */
+  /* [47] Checksum = XOR([2]..[46])，校验区不包含帧头。 */
   for (idx = (uint8_t)BLE_COMM_XOR_START_IDX; idx <= (uint8_t)BLE_COMM_XOR_END_IDX; idx++)
   {
     checksum ^= out_buffer[idx];
   }
   out_buffer[BLE_COMM_IDX_CHECKSUM] = checksum;
 
-  /* 帧尾 */
+  /* [48] 单字节帧尾：0xCC。 */
   out_buffer[BLE_COMM_IDX_TAIL0] = BLE_COMM_FRAME_TAIL_BYTE0;
-  out_buffer[BLE_COMM_IDX_TAIL1] = BLE_COMM_FRAME_TAIL_BYTE1;
 }
 
 bool BLE_Task_Process(SensorRingBuffer_t *rb)
