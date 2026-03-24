@@ -30,8 +30,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#if 0
 #include "AD4007.h"
+#include "TMUX1108.h"
+#include "ble_comm.h"
+#if 0
 #include "ble.h"
 #endif
 /*
@@ -40,11 +42,13 @@
  * - LSM9DS1 : MIMU 采样（SPI + DMA）
  * - ble_comm: 将 SensorDataFrame_t 打包为固定帧格式
  */
+#if 0
 #include "MAX30101.h"
 #include "sensor_ringbuffer.h"
 #include "LSM9DS1.h"
 #include "ble.h"
 #include "ble_comm.h"
+#endif
 #include "usbd_cdc_if.h"
 #include <stdio.h>
 #include <string.h>
@@ -107,6 +111,27 @@ static volatile uint32_t g_master_cmp4_count = 0U;
 static volatile uint8_t g_tim_group_phase = 1U;
 static volatile uint8_t g_usb_flush_pending = 0U;
 
+static volatile uint8_t g_adc_dma_pending = 0U;
+static volatile uint8_t g_adc_dma_pending_slot = 0U;
+static volatile uint8_t g_adc_pulse_start_index = 0U;
+static volatile uint8_t g_adc_group_frame_ready = 0U;
+
+static int64_t g_adc_early_sum = 0;
+static int64_t g_adc_late_sum = 0;
+static uint8_t g_adc_early_count = 0U;
+static uint8_t g_adc_late_count = 0U;
+
+static uint8_t g_adc_dma_raw[6][AD4007_FRAME_BYTES] = {{0}};
+static SensorDataFrame_t g_adc_group_frame = {0};
+static SensorDataFrame_t g_usb_send_frame = {0};
+static uint8_t g_usb_send_pending = 0U;
+
+static uint32_t g_adc_dma_start_fail_count = 0U;
+static uint32_t g_adc_dma_decode_fail_count = 0U;
+static uint32_t g_adc_dma_timeout_count = 0U;
+static uint32_t g_adc_fall_event_count = 0U;
+static uint32_t g_adc_sample_ok_count = 0U;
+
 /*
  * 当前生效数据通路：
  * ISR 生产者：MAX30101/LSM9DS1 DMA 回调 -> RingBuffer_Push()
@@ -150,11 +175,133 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void Bridge_ApplyState(uint8_t phase)
+{
+  switch (phase)
+  {
+    case 1U:
+      TMUX_KB_SetChannel(TMUX_CH_S5);
+      TMUX_KH_SetChannel(TMUX_CH_S7);
+      TMUX_KL_SetChannel(TMUX_CH_S1);
+      break;
+
+    case 2U:
+      TMUX_KB_SetChannel(TMUX_CH_S6);
+      TMUX_KH_SetChannel(TMUX_CH_S6);
+      TMUX_KL_SetChannel(TMUX_CH_S5);
+      break;
+
+    case 3U:
+      TMUX_KB_SetChannel(TMUX_CH_S7);
+      TMUX_KH_SetChannel(TMUX_CH_S5);
+      TMUX_KL_SetChannel(TMUX_CH_S6);
+      break;
+
+    case 4U:
+    default:
+      TMUX_KB_SetChannel(TMUX_CH_S8);
+      TMUX_KH_SetChannel(TMUX_CH_S1);
+      TMUX_KL_SetChannel(TMUX_CH_S7);
+      break;
+  }
+}
+
+static void ADC_ResetCycleAccumulator(void)
+{
+  g_adc_early_sum = 0;
+  g_adc_late_sum = 0;
+  g_adc_early_count = 0U;
+  g_adc_late_count = 0U;
+  g_adc_pulse_start_index = 0U;
+  g_adc_dma_pending = 0U;
+  g_adc_dma_pending_slot = 0U;
+}
+
+static void ADC_TryHarvestPendingSample(void)
+{
+  int32_t code = 0;
+  uint8_t slot;
+
+  if (g_adc_dma_pending == 0U)
+  {
+    return;
+  }
+
+  if (hspi3.State != HAL_SPI_STATE_READY)
+  {
+    return;
+  }
+
+  slot = g_adc_dma_pending_slot;
+  if (AD4007_ProcessRawData(g_adc_dma_raw[slot], 1U, &code) != HAL_OK)
+  {
+    g_adc_dma_decode_fail_count++;
+    g_adc_dma_pending = 0U;
+    return;
+  }
+
+  if (slot < 3U)
+  {
+    g_adc_early_sum += (int64_t)code;
+    g_adc_early_count++;
+  }
+  else
+  {
+    g_adc_late_sum += (int64_t)code;
+    g_adc_late_count++;
+  }
+
+  g_adc_sample_ok_count++;
+  g_adc_dma_pending = 0U;
+}
+
+static void ADC_FinalizeStateAndRotateBridge(void)
+{
+  uint8_t state_index = (uint8_t)(g_tim_group_phase - 1U);
+  int32_t early_avg = 0;
+  int32_t late_avg = 0;
+
+  ADC_TryHarvestPendingSample();
+  if (g_adc_dma_pending != 0U)
+  {
+    (void)HAL_SPI_Abort(&hspi3);
+    g_adc_dma_timeout_count++;
+    g_adc_dma_pending = 0U;
+  }
+
+  if (g_adc_early_count != 0U)
+  {
+    early_avg = (int32_t)(g_adc_early_sum / (int64_t)g_adc_early_count);
+  }
+  if (g_adc_late_count != 0U)
+  {
+    late_avg = (int32_t)(g_adc_late_sum / (int64_t)g_adc_late_count);
+  }
+
+  g_adc_group_frame.adc_data[state_index].early_code = early_avg;
+  g_adc_group_frame.adc_data[state_index].late_code = late_avg;
+
+  if (g_tim_group_phase == 4U)
+  {
+    g_adc_group_frame_ready = 1U;
+  }
+
+  g_tim_group_phase++;
+  if (g_tim_group_phase > 4U)
+  {
+    g_tim_group_phase = 1U;
+  }
+
+  Bridge_ApplyState(g_tim_group_phase);
+  ADC_ResetCycleAccumulator();
+}
+
 /*
  * 程序总体用途（当前调试版本）：
- * 1) 启用 TIM1(400Hz) -> HRTIM 同步的 4 拍状态机。
- * 2) 第1拍触发 PPG DMA，第2拍触发 MIMU DMA，第3拍检查 ring buffer 后按 BLE 协议格式通过 USB 发送。
- * 3) ADC 采样相关调试代码暂不参与本轮流程；旧实现保留在 #if 0 中便于回滚。
+ * 1) 启用 TIM1(400Hz) -> HRTIM 同步的 4 状态机。
+ * 2) 在每次状态周期中由 TimerA Output2 产生 3+3 个 CNV 脉冲，并在 reset 边沿触发 AD4007 SPI+DMA 读取。
+ * 3) 每个状态归档 early/late 三点均值，4 个状态完成后通过 USB 发送 1 帧。
+ * 4) 旧版 PPG/MIMU/BLE 调试实现保留在 #if 0 中便于回滚。
  */
 
 #if 0
@@ -167,6 +314,7 @@ static float AD4007_CodeToVoltage(int32_t code)
 }
 #endif
 
+#if 0
 /* 判断当前出队帧是否包含有效 PPG 数据。 */
 static uint8_t FrameHasPPGPayload(const SensorDataFrame_t *frame)
 {
@@ -222,6 +370,7 @@ static void PatchZeroPPGWithNeighborAverage(SensorDataFrame_t *out_frame,
   sum = prev_frame->ppg_data[2] + next_frame->ppg_data[2];
   out_frame->ppg_data[2] = (sum >> 1);
 }
+#endif
 
 #if 0
 /*
@@ -506,13 +655,9 @@ int main(void)
   (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
 #endif
 
+  #if 0
   /*
-  * 当前启用的初始化流程（生效路径）：
-  * 1) 先初始化 GPIO/DMA/I2C/SPI/TIM/HRTIM/USB。
-  * 2) 按电源时序给传感器上电，避免上电瞬间寄存器读写不稳定。
-  * 3) 绑定 ring buffer，使 PPG/MIMU 异步回调统一写入同一缓冲区。
-  * 4) 完成 PPG/MIMU 设备寄存器配置。
-  * 5) 启动 HRTIM + TIM1，中断驱动 4 拍状态机。
+  * 当前启用的旧流程（PPG/MIMU/BLE 调试路径）：保留用于回滚，不删除。
    */
   MX_GPIO_Init();
   MX_DMA_Init();
@@ -598,7 +743,9 @@ int main(void)
                               HRTIM_MASTER_IT_SYNC);
   __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
                              HRTIM_TIMERINDEX_TIMER_A,
-                             HRTIM_TIM_IT_RST2);
+                             HRTIM_TIM_IT_CMP1 |
+                             HRTIM_TIM_IT_CMP3 |
+                             HRTIM_TIM_IT_REP);
 
   /* 清 pending，避免上电残留中断状态导致首拍异常。 */
   NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
@@ -606,7 +753,9 @@ int main(void)
 
   /* 仅打开本轮调试必需中断：Master CMP4 与 TimerA RST2。 */
   __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1, HRTIM_MASTER_IT_MCMP4);
-  __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_TIM_IT_RST2);
+  __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1,
+                              HRTIM_TIMERINDEX_TIMER_A,
+                              HRTIM_TIM_IT_RST2);
 
   HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
   HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
@@ -620,6 +769,80 @@ int main(void)
   (void)snprintf(g_usb_msg, sizeof(g_usb_msg),
                  "TIM1+HRTIM start: phase1=PPG, phase2=MIMU, phase3=BLE\r\n");
   (void)BLE_Transmit_Data_DMA((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+  #endif
+
+  /*
+   * 当前生效流程（仅 ADC + 定时架构）：
+   * 1) 初始化 GPIO/DMA/SPI3/HRTIM/TIM1/USB；
+   * 2) 电源开启前先初始化 TMUX 并置为状态机1；
+   * 3) 启动 AD4007；
+   * 4) 通过 TimerA Output2 reset 中断执行 3+3 次采样，master CMP4 回调归档结果；
+   * 5) 每 4 个 TIM1 周期通过 USB 发送 1 帧（100Hz）。
+   */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_SPI3_Init();
+  MX_HRTIM1_Init();
+  MX_TIM1_Init();
+  MX_USB_Device_Init();
+
+  TMUX_Global_Init();
+  g_tim_group_phase = 1U;
+  Bridge_ApplyState(g_tim_group_phase);
+
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_7, GPIO_PIN_SET);
+  HAL_Delay(50);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8, GPIO_PIN_SET);
+  HAL_Delay(50);
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);
+  HAL_Delay(50);
+
+  if (AD4007_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  ADC_ResetCycleAccumulator();
+  (void)memset(&g_adc_group_frame, 0, sizeof(g_adc_group_frame));
+  (void)memset(&g_usb_send_frame, 0, sizeof(g_usb_send_frame));
+
+  if (HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  __HAL_HRTIM_MASTER_CLEAR_IT(&hhrtim1,
+                              HRTIM_MASTER_IT_MCMP4 |
+                              HRTIM_MASTER_IT_MUPD |
+                              HRTIM_MASTER_IT_MREP |
+                              HRTIM_MASTER_IT_SYNC);
+  __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
+                             HRTIM_TIMERINDEX_TIMER_A,
+                             HRTIM_TIM_IT_CMP1 |
+                             HRTIM_TIM_IT_CMP3 |
+                             HRTIM_TIM_IT_REP);
+
+  NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
+  NVIC_ClearPendingIRQ(HRTIM1_TIMA_IRQn);
+
+  __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1, HRTIM_MASTER_IT_MCMP4);
+  __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1,
+                              HRTIM_TIMERINDEX_TIMER_A,
+                              HRTIM_TIM_IT_CMP1 |
+                              HRTIM_TIM_IT_CMP3 |
+                              HRTIM_TIM_IT_REP);
+
+  HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
+  HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
+
+  if (HAL_TIM_Base_Start_IT(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  (void)snprintf(g_usb_msg, sizeof(g_usb_msg),
+                 "TIM1+HRTIM+AD4007 start: 6pulse/cycle, 4state/100Hz\r\n");
+  (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
 
   g_last_print_tick = HAL_GetTick();
   /* USER CODE END 2 */
@@ -631,9 +854,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    uint8_t need_flush = 0U;
     uint32_t now = HAL_GetTick();
-    (void)now;
+    ADC_TryHarvestPendingSample();
 
 #if 0
     if ((now - g_last_print_tick) >= 1000U)
@@ -947,120 +1169,43 @@ int main(void)
     }
 #endif
 
-  /*
-   * 中断到主循环的“轻量信号传递”：
-   * - ISR 只置位 g_usb_flush_pending
-   * - 主循环读取并清除标志，再执行相对耗时的 USB 发送
-   * 这样可避免在中断上下文做 CDC 发送造成阻塞与抖动。
-   */
-    __disable_irq();
-    if (g_usb_flush_pending != 0U)
+    #if 0
+    /* 临时关闭二进制帧发送链路，仅保留计数文本输出用于调试。 */
+    if (g_usb_send_pending == 0U)
     {
-      g_usb_flush_pending = 0U;
-      need_flush = 1U;
-    }
-    __enable_irq();
-
-    /*
-     * 批量发送窗口：
-     * 每次最多发送 SENSOR_SEND_BATCH_THRESHOLD 帧，
-     * 避免单次循环占用过久影响系统实时性。
-     */
-    if (need_flush != 0U)
-    {
-      SensorDataFrame_t frame;
-      SensorDataFrame_t cycle_frame = {0};
-      uint16_t raw_pop_count = 0U;
-      uint8_t has_ppg = 0U;
-      uint8_t has_imu = 0U;
-
-      /*
-       * 每个大周期仅发送 1 帧：
-       * - 把 ringbuffer 当前残留半帧全部“吸收并覆盖到最新值”
-       * - 仅保留本周期最终用于发送的融合结果
-       * - 其余状态机1/2半帧不直接发送
-       */
-      while (raw_pop_count < CYCLE_RAW_DRAIN_LIMIT)
+      __disable_irq();
+      if (g_adc_group_frame_ready != 0U)
       {
-        if (!RingBuffer_Pop(&g_sensor_rb, &frame))
-        {
-          break;
-        }
-        raw_pop_count++;
-
-        /* 捕获 PPG 半帧（若多次到达则保留最新一次）。 */
-        if (FrameHasPPGPayload(&frame) != 0U)
-        {
-          cycle_frame.ppg_data[0] = frame.ppg_data[0];
-          cycle_frame.ppg_data[1] = frame.ppg_data[1];
-          cycle_frame.ppg_data[2] = frame.ppg_data[2];
-          has_ppg = 1U;
-        }
-
-        /* 捕获 MIMU 半帧（若多次到达则保留最新一次）。 */
-        if (FrameHasIMUPayload(&frame) != 0U)
-        {
-          cycle_frame.imu_data[0] = frame.imu_data[0];
-          cycle_frame.imu_data[1] = frame.imu_data[1];
-          cycle_frame.imu_data[2] = frame.imu_data[2];
-          cycle_frame.imu_data[3] = frame.imu_data[3];
-          cycle_frame.imu_data[4] = frame.imu_data[4];
-          cycle_frame.imu_data[5] = frame.imu_data[5];
-          has_imu = 1U;
-        }
+        g_usb_send_frame = g_adc_group_frame;
+        g_adc_group_frame_ready = 0U;
+        g_usb_send_pending = 1U;
       }
-
-      g_cycle_total_count++;
-      if (has_ppg == 0U)
-      {
-        g_cycle_miss_ppg_count++;
-      }
-      if (has_imu == 0U)
-      {
-        g_cycle_miss_imu_count++;
-      }
-
-      /*
-       * 发送策略（1 帧延迟）：
-       * - 当前周期融合结果先进入 pending；
-       * - 本次实际发送上一周期 pending（非最新一帧）。
-       * - 若待发送帧 PPG 全0，则用“上下两帧”PPG均值替换。
-       */
-      if (g_pending_cycle_valid != 0U)
-      {
-        SensorDataFrame_t out_frame = g_pending_cycle_frame;
-
-        PatchZeroPPGWithNeighborAverage(&out_frame, &g_prev_cycle_frame, &cycle_frame);
-
-        BLE_PackSingleFrame(&out_frame, g_usb_frame);
-        (void)BLE_Transmit_Data_DMA(g_usb_frame, BLE_COMM_SINGLE_FRAME_SIZE);
-
-        g_prev_cycle_frame = g_pending_cycle_frame;
-        g_prev_cycle_valid = 1U;
-      }
-      else
-      {
-        /* 首帧仅灌入 pending，不立即发送，建立“上一帧发送”管线。 */
-        g_prev_cycle_valid = 0U;
-      }
-
-      g_pending_cycle_frame = cycle_frame;
-      g_pending_cycle_valid = 1U;
+      __enable_irq();
     }
 
-    /* 1Hz 心跳日志：用于观察中断节拍与缓存积压趋势。 */
-    // if ((now - g_last_print_tick) >= 1000U)
-    // {
-    //   g_last_print_tick = now;
-    //   (void)snprintf(g_usb_msg,
-    //                  sizeof(g_usb_msg),
-    //                  "TIM1=%lu MCMP4=%lu phase=%u rb=%u\r\n",
-    //                  (unsigned long)g_tim1_tick_count,
-    //                  (unsigned long)g_master_cmp4_count,
-    //                  (unsigned int)g_tim_group_phase,
-    //                  (unsigned int)RingBuffer_GetCount(&g_sensor_rb));
-    //   (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
-    // }
+    if (g_usb_send_pending != 0U)
+    {
+      BLE_PackSingleFrame(&g_usb_send_frame, g_usb_frame);
+      if (CDC_Transmit_FS2(g_usb_frame, BLE_COMM_SINGLE_FRAME_SIZE) == USBD_OK)
+      {
+        g_usb_send_pending = 0U;
+      }
+    }
+    #endif
+
+    if ((now - g_last_print_tick) >= 1000U)
+    {
+      g_last_print_tick = now;
+      (void)snprintf(g_usb_msg,
+                     sizeof(g_usb_msg),
+                     "fall=%lu ok=%lu dFail=%lu dDec=%lu dTo=%lu\r\n",
+                     (unsigned long)g_adc_fall_event_count,
+                     (unsigned long)g_adc_sample_ok_count,
+                     (unsigned long)g_adc_dma_start_fail_count,
+                     (unsigned long)g_adc_dma_decode_fail_count,
+                     (unsigned long)g_adc_dma_timeout_count);
+      (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+    }
   }
   /* USER CODE END 3 */
 }
@@ -1130,54 +1275,63 @@ void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
 
   g_master_cmp4_count++;
 
-  /*
-   * 4 拍状态机（每拍由 master CMP4 触发一次）：
-   * - phase1: 触发 PPG 异步读取
-    * - phase2: 触发 MIMU 异步读取
-   * - phase3: 置位发送标志
-   * - phase4: 预留空拍（给异步链路留余量）
-   *
-    * 说明：
-    * 若某周期融合后 PPG 全0，会在主循环发送前补触发一次 PPG DMA 读取做兜底。
-   */
-  switch (g_tim_group_phase)
+  /* 事件4：归档本周期 3+3 脉冲采样结果，并切换到下一桥臂状态。 */
+  ADC_FinalizeStateAndRotateBridge();
+  g_usb_flush_pending = 1U;
+}
+
+static void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
+{
+  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
   {
-    case 1U:
-      (void)MAX30101_TriggerPointerRead_IT();
-      break;
+    g_adc_fall_event_count++;
 
-    case 2U:
-      (void)LSM9DS1_TriggerRead_IT();
-      break;
+    /* TA2 reset：对应 CNV 下降沿，启动 AD4007 单点 SPI+DMA 读取。 */
+    ADC_TryHarvestPendingSample();
 
-    case 3U:
-      /*
-       * 本轮验证：phase3 仅发送，不再额外触发 PPG。
-       * 旧逻辑保留用于回滚：
-       */
-    #if 0
-      (void)MAX30101_TriggerPointerRead_IT();
-    #endif
-      g_usb_flush_pending = 1U;
-      break;
-
-    case 4U:
-    default:
-      break;
+    if (g_adc_dma_pending == 0U)
+    {
+      if (g_adc_pulse_start_index < 6U)
+      {
+        if (AD4007_Start_DMA_Rx(g_adc_dma_raw[g_adc_pulse_start_index], 1U) == HAL_OK)
+        {
+          g_adc_dma_pending_slot = g_adc_pulse_start_index;
+          g_adc_dma_pending = 1U;
+          g_adc_pulse_start_index++;
+        }
+        else
+        {
+          g_adc_dma_start_fail_count++;
+        }
+      }
+    }
   }
+}
 
-  g_tim_group_phase++;
-  if (g_tim_group_phase > 4U)
-  {
-    g_tim_group_phase = 1U;
-  }
+void HAL_HRTIM_Compare1EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
+{
+  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
+  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+}
+
+void HAL_HRTIM_Compare3EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
+{
+  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
+  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+}
+
+void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
+{
+  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
+  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 void HAL_HRTIM_Output2ResetCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
   if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
   {
-    /* 预留：TimerA Output2 reset 中断可用于后续 ADC 采样扩展。 */
+    /* 当前生效：使用 TimerA Output2 reset(RST2) 作为 CNV 下降沿触发。 */
+    ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
   }
 }
 

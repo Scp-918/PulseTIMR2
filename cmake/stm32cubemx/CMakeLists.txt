@@ -37,6 +37,7 @@ set(MX_Application_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/usart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/ble.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/AD4007.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/TMUX1108.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/MAX30101.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/LSM9DS1.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/sensor_ringbuffer.c
