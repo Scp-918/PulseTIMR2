@@ -142,7 +142,7 @@ static uint32_t g_adc_sample_ok_count = 0U;
 static SensorRingBuffer_t g_sensor_rb;
 /* 主协议帧缓存。 */
 static uint8_t g_ble_frame[BLE_COMM_SINGLE_FRAME_SIZE];
-#if 0
+#if 1
 /* 调试文本输出状态缓存：保留用于回滚。 */
 static uint32_t g_last_print_tick = 0U;
 static uint32_t g_last_tim1_tick_count = 0U;
@@ -1477,20 +1477,7 @@ int main(void)
 
       len = snprintf(g_ble_dbg_msg,
                      sizeof(g_ble_dbg_msg),
-                     "DBG tot t1=%lu m4=%lu cmp1=%lu cmp3=%lu rep=%lu rst2=%lu st=%lu ok=%lu miss=%lu busy=%lu sf=%lu dec=%lu to=%lu | d1s t1=%lu m4=%lu cmp1=%lu cmp3=%lu rep=%lu rst2=%lu st=%lu ok=%lu miss=%lu\r\n",
-                     (unsigned long)g_tim1_tick_count,
-                     (unsigned long)g_master_cmp4_count,
-                     (unsigned long)g_adc_cmp1_isr_count,
-                     (unsigned long)g_adc_cmp3_isr_count,
-                     (unsigned long)g_adc_rep_isr_count,
-                     (unsigned long)g_adc_rst2_isr_count,
-                     (unsigned long)g_adc_start_ok_count,
-                     (unsigned long)g_adc_sample_ok_count,
-                     (unsigned long)g_adc_rst2_to_dma_miss_count,
-                     (unsigned long)g_adc_busy_skip_count,
-                     (unsigned long)g_adc_dma_start_fail_count,
-                     (unsigned long)g_adc_dma_decode_fail_count,
-                     (unsigned long)g_adc_dma_timeout_count,
+                     "DBG d1s t1=%lu m4=%lu c1=%lu c3=%lu rep=%lu r2=%lu st=%lu ok=%lu miss=%lu b=%lu sf=%lu dec=%lu to=%lu\r\n",
                      (unsigned long)d_tim1,
                      (unsigned long)d_m4,
                      (unsigned long)d_cmp1,
@@ -1499,7 +1486,11 @@ int main(void)
                      (unsigned long)d_rst2,
                      (unsigned long)d_start,
                      (unsigned long)d_ok,
-                     (unsigned long)d_miss);
+                     (unsigned long)d_miss,
+                     (unsigned long)g_adc_busy_skip_count,
+                     (unsigned long)g_adc_dma_start_fail_count,
+                     (unsigned long)g_adc_dma_decode_fail_count,
+                     (unsigned long)g_adc_dma_timeout_count);
       if (len > 0)
       {
         (void)BLE_Transmit_Data_DMA((uint8_t *)g_ble_dbg_msg, (uint16_t)len);
