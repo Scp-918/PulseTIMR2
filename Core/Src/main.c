@@ -126,6 +126,11 @@ static uint32_t g_adc_dma_decode_fail_count = 0U;
 static uint32_t g_adc_dma_timeout_count = 0U;
 static uint32_t g_adc_busy_skip_count = 0U;
 static uint32_t g_adc_fall_event_count = 0U;
+static uint32_t g_adc_rst2_isr_count = 0U;
+static uint32_t g_adc_rst2_to_dma_miss_count = 0U;
+static uint32_t g_adc_cmp1_isr_count = 0U;
+static uint32_t g_adc_cmp3_isr_count = 0U;
+static uint32_t g_adc_rep_isr_count = 0U;
 static uint32_t g_adc_start_ok_count = 0U;
 static uint32_t g_adc_sample_ok_count = 0U;
 
@@ -135,8 +140,22 @@ static uint32_t g_adc_sample_ok_count = 0U;
  * 主循环消费者：RingBuffer_Pop() -> 融合到当前大周期帧 -> BLE_PackSingleFrame() -> BLE UART DMA
  */
 static SensorRingBuffer_t g_sensor_rb;
+/* 主协议帧缓存。 */
 static uint8_t g_ble_frame[BLE_COMM_SINGLE_FRAME_SIZE];
+#if 0
+/* 调试文本输出状态缓存：保留用于回滚。 */
 static uint32_t g_last_print_tick = 0U;
+static uint32_t g_last_tim1_tick_count = 0U;
+static uint32_t g_last_master_cmp4_count = 0U;
+static uint32_t g_last_adc_rst2_isr_count = 0U;
+static uint32_t g_last_adc_start_ok_count = 0U;
+static uint32_t g_last_adc_sample_ok_count = 0U;
+static uint32_t g_last_adc_rst2_to_dma_miss_count = 0U;
+static uint32_t g_last_adc_cmp1_isr_count = 0U;
+static uint32_t g_last_adc_cmp3_isr_count = 0U;
+static uint32_t g_last_adc_rep_isr_count = 0U;
+static char g_ble_dbg_msg[256];
+#endif
 #if 0
 /* 旧版文本调试缓存：保留用于回滚。 */
 static char g_ble_msg[128];
@@ -863,6 +882,9 @@ int main(void)
   __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1, HRTIM_MASTER_IT_MCMP4);
   __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1,
                               HRTIM_TIMERINDEX_TIMER_A,
+                              HRTIM_TIM_IT_CMP1 |
+                              HRTIM_TIM_IT_CMP3 |
+                              HRTIM_TIM_IT_REP  |
                               HRTIM_TIM_IT_RST2);
 
   HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
@@ -1044,7 +1066,10 @@ int main(void)
   __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1, HRTIM_MASTER_IT_MCMP4);
   __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1,
                               HRTIM_TIMERINDEX_TIMER_A,
-                              HRTIM_TIM_IT_RST2);
+                              HRTIM_TIM_IT_CMP1 |
+                             HRTIM_TIM_IT_CMP3 |
+                             HRTIM_TIM_IT_REP |
+                             HRTIM_TIM_IT_RST2);
 
   HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
   HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
@@ -1054,7 +1079,9 @@ int main(void)
     Error_Handler();
   }
 
+#if 0
   g_last_print_tick = HAL_GetTick();
+#endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -1064,6 +1091,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+  #if 0
+    uint32_t now = HAL_GetTick();
+  #endif
     ADC_TryHarvestPendingSample();
 
 #if 0
@@ -1378,6 +1408,10 @@ int main(void)
     }
 #endif
 
+ #if 1
+    /*
+     * 主协议帧发送路径（当前生效）。
+     */
     if (g_group_frame_ready_for_send != 0U)
     {
       PrepareAndCommitGroupFrame();
@@ -1391,23 +1425,85 @@ int main(void)
         g_ble_send_pending = 0U;
       }
     }
+ #endif
 
-#if 0
-    /* 调试计数文本输出：保留用于回滚诊断，当前关闭。 */
+  #if 0
+    /*
+     * 调试模式：仍执行组帧提交以维持状态机节拍，但丢弃主协议发送。
+     */
+    if (g_group_frame_ready_for_send != 0U)
+    {
+      PrepareAndCommitGroupFrame();
+      if (g_ble_send_pending != 0U)
+      {
+        g_ble_send_pending = 0U;
+      }
+    }
+
+    /* 每秒发送1条 BLE 文本调试帧。 */
     if ((now - g_last_print_tick) >= 1000U)
     {
+      int len;
+      uint32_t d_tim1;
+      uint32_t d_m4;
+      uint32_t d_cmp1;
+      uint32_t d_cmp3;
+      uint32_t d_rep;
+      uint32_t d_rst2;
+      uint32_t d_start;
+      uint32_t d_ok;
+      uint32_t d_miss;
+
       g_last_print_tick = now;
-      (void)snprintf(g_usb_msg,
-                     sizeof(g_usb_msg),
-                     "fall=%lu start=%lu ok=%lu dBusy=%lu dFail=%lu dDec=%lu dTo=%lu\r\n",
-                     (unsigned long)g_adc_fall_event_count,
+      d_tim1 = g_tim1_tick_count - g_last_tim1_tick_count;
+      d_m4 = g_master_cmp4_count - g_last_master_cmp4_count;
+      d_cmp1 = g_adc_cmp1_isr_count - g_last_adc_cmp1_isr_count;
+      d_cmp3 = g_adc_cmp3_isr_count - g_last_adc_cmp3_isr_count;
+      d_rep = g_adc_rep_isr_count - g_last_adc_rep_isr_count;
+      d_rst2 = g_adc_rst2_isr_count - g_last_adc_rst2_isr_count;
+      d_start = g_adc_start_ok_count - g_last_adc_start_ok_count;
+      d_ok = g_adc_sample_ok_count - g_last_adc_sample_ok_count;
+      d_miss = g_adc_rst2_to_dma_miss_count - g_last_adc_rst2_to_dma_miss_count;
+
+      g_last_tim1_tick_count = g_tim1_tick_count;
+      g_last_master_cmp4_count = g_master_cmp4_count;
+      g_last_adc_cmp1_isr_count = g_adc_cmp1_isr_count;
+      g_last_adc_cmp3_isr_count = g_adc_cmp3_isr_count;
+      g_last_adc_rep_isr_count = g_adc_rep_isr_count;
+      g_last_adc_rst2_isr_count = g_adc_rst2_isr_count;
+      g_last_adc_start_ok_count = g_adc_start_ok_count;
+      g_last_adc_sample_ok_count = g_adc_sample_ok_count;
+      g_last_adc_rst2_to_dma_miss_count = g_adc_rst2_to_dma_miss_count;
+
+      len = snprintf(g_ble_dbg_msg,
+                     sizeof(g_ble_dbg_msg),
+                     "DBG tot t1=%lu m4=%lu cmp1=%lu cmp3=%lu rep=%lu rst2=%lu st=%lu ok=%lu miss=%lu busy=%lu sf=%lu dec=%lu to=%lu | d1s t1=%lu m4=%lu cmp1=%lu cmp3=%lu rep=%lu rst2=%lu st=%lu ok=%lu miss=%lu\r\n",
+                     (unsigned long)g_tim1_tick_count,
+                     (unsigned long)g_master_cmp4_count,
+                     (unsigned long)g_adc_cmp1_isr_count,
+                     (unsigned long)g_adc_cmp3_isr_count,
+                     (unsigned long)g_adc_rep_isr_count,
+                     (unsigned long)g_adc_rst2_isr_count,
                      (unsigned long)g_adc_start_ok_count,
                      (unsigned long)g_adc_sample_ok_count,
+                     (unsigned long)g_adc_rst2_to_dma_miss_count,
                      (unsigned long)g_adc_busy_skip_count,
                      (unsigned long)g_adc_dma_start_fail_count,
                      (unsigned long)g_adc_dma_decode_fail_count,
-                     (unsigned long)g_adc_dma_timeout_count);
-      (void)CDC_Transmit_FS2((uint8_t *)g_usb_msg, (uint16_t)strlen(g_usb_msg));
+                     (unsigned long)g_adc_dma_timeout_count,
+                     (unsigned long)d_tim1,
+                     (unsigned long)d_m4,
+                     (unsigned long)d_cmp1,
+                     (unsigned long)d_cmp3,
+                     (unsigned long)d_rep,
+                     (unsigned long)d_rst2,
+                     (unsigned long)d_start,
+                     (unsigned long)d_ok,
+                     (unsigned long)d_miss);
+      if (len > 0)
+      {
+        (void)BLE_Transmit_Data_DMA((uint8_t *)g_ble_dbg_msg, (uint16_t)len);
+      }
     }
 #endif
   }
@@ -1526,42 +1622,69 @@ static void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
         else
         {
           g_adc_dma_start_fail_count++;
+          g_adc_rst2_to_dma_miss_count++;
         }
+      }
+      else
+      {
+        /* 超出本轮6个采样槽位的RST2，不再启动DMA。 */
+        g_adc_rst2_to_dma_miss_count++;
       }
     }
     else
     {
       /* 当前下降沿到来时，前一笔 SPI DMA 仍未完成，记为 busy skip。 */
       g_adc_busy_skip_count++;
+      g_adc_rst2_to_dma_miss_count++;
     }
   }
 }
 
 void HAL_HRTIM_Compare1EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
-  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
+  {
+    g_adc_cmp1_isr_count++;
+  }
+
+  /* 当前生效方案：在 CMP1 事件触发 ADC DMA。 */
+  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 void HAL_HRTIM_Compare3EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
-  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
+  {
+    g_adc_cmp3_isr_count++;
+  }
+
+  /* 当前生效方案：在 CMP3 事件触发 ADC DMA。 */
+  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 旧方案保留用于回滚：使用 CMP1/CMP3/REP 触发采样。 */
-  // ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+  if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
+  {
+    g_adc_rep_isr_count++;
+  }
+
+  /* 当前生效方案：在 REP 事件触发 ADC DMA。 */
+  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 void HAL_HRTIM_Output2ResetCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
   if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
   {
-    /* 当前生效：使用 TimerA Output2 reset(RST2) 作为 CNV 下降沿触发。 */
-    ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+    /* 当前生效仅计数：RST2 不再触发 DMA，保留用于口径对照。 */
+    g_adc_rst2_isr_count++;
   }
+
+  /*
+   * 旧方案保留用于回滚：在 RST2 事件触发 ADC DMA。
+   * ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
+   */
 }
 
 /* USER CODE END 4 */
@@ -1573,7 +1696,6 @@ void HAL_HRTIM_Output2ResetCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerI
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
   {

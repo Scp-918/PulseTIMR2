@@ -88,7 +88,12 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = 24750;
+  /*
+   * 切换到 8us 版本：Master CMP3=24300。
+   * 15us 参数 24750 保留用于回滚对照。
+   */
+  // pCompareCfg.CompareValue = 24750;
+  pCompareCfg.CompareValue = 24300;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_MASTER, HRTIM_COMPAREUNIT_3, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -98,7 +103,13 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pTimeBaseCfg.Period = 3150;
+  /*
+   * Timer A 切换到 8us 间隔版本：
+   * - 旧 15us/10us 参数保留用于回滚对照。
+   */
+  // pTimeBaseCfg.Period = 3150;
+  pTimeBaseCfg.Period = 1650;
+  // pTimeBaseCfg.Period = 2050;
   pTimeBaseCfg.PrescalerRatio = HRTIM_PRESCALERRATIO_DIV1;
   if (HAL_HRTIM_TimeBaseConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, &pTimeBaseCfg) != HAL_OK)
   {
@@ -122,6 +133,11 @@ void MX_HRTIM1_Init(void)
   pTimerCfg.DeadTimeInsertion = HRTIM_TIMDEADTIMEINSERTION_DISABLED;
   pTimerCfg.DelayedProtectionMode = HRTIM_TIMER_A_B_C_DELAYEDPROTECTION_DISABLED;
   pTimerCfg.UpdateTrigger = HRTIM_TIMUPDATETRIGGER_NONE;
+  /*
+   * 当前生效配置：Timer A 由 Master CMP2 + CMP3 双触发复位，
+   * 每个大周期生成两组 3 脉冲（总计 3+3）。
+   */
+  // pTimerCfg.ResetTrigger = HRTIM_TIMRESETTRIGGER_MASTER_CMP2;
   pTimerCfg.ResetTrigger = HRTIM_TIMRESETTRIGGER_MASTER_CMP2|HRTIM_TIMRESETTRIGGER_MASTER_CMP3;
   pTimerCfg.ResetUpdate = HRTIM_TIMUPDATEONRESET_DISABLED;
   if (HAL_HRTIM_WaveformTimerConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, &pTimerCfg) != HAL_OK)
@@ -133,7 +149,9 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = 1550;
+  // pCompareCfg.CompareValue = 1550;
+  pCompareCfg.CompareValue = 800;
+  // pCompareCfg.CompareValue = 1000;
   pCompareCfg.AutoDelayedMode = HRTIM_AUTODELAYEDMODE_REGULAR;
   pCompareCfg.AutoDelayedTimeout = 0x0000;
 
@@ -141,19 +159,28 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = 1600;
+  // pCompareCfg.CompareValue = 1600;
+  pCompareCfg.CompareValue = 850;
+  // pCompareCfg.CompareValue = 1050;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_3, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = 3100;
+  // pCompareCfg.CompareValue = 3100;
+  pCompareCfg.CompareValue = 1600;
+  // pCompareCfg.CompareValue = 2000;
 
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_4, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
   }
   pOutputCfg.Polarity = HRTIM_OUTPUTPOLARITY_HIGH;
-  pOutputCfg.SetSource = HRTIM_OUTPUTSET_MASTERPER;
+  /*
+   * 事件1：TA1 在 Master CMP1 置位（而非周期起点），
+   * 与“事件1拉高电桥输出”的时序定义保持一致。
+   */
+  // pOutputCfg.SetSource = HRTIM_OUTPUTSET_MASTERPER;
+  pOutputCfg.SetSource = HRTIM_OUTPUTSET_MASTERCMP1;
   pOutputCfg.ResetSource = HRTIM_OUTPUTRESET_MASTERCMP4;
   pOutputCfg.IdleMode = HRTIM_OUTPUTIDLEMODE_NONE;
   pOutputCfg.IdleLevel = HRTIM_OUTPUTIDLELEVEL_INACTIVE;
@@ -164,6 +191,13 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
+  /*
+   * TA2 置位源恢复为 CMP2 + CMP3 双路径：
+   * - CMP2 触发第一组 3 脉冲
+   * - CMP3 触发第二组 3 脉冲
+   */
+  // pOutputCfg.SetSource = HRTIM_OUTPUTSET_MASTERCMP2
+  //                             |HRTIM_OUTPUTSET_TIMCMP2|HRTIM_OUTPUTSET_TIMCMP4;
   pOutputCfg.SetSource = HRTIM_OUTPUTSET_MASTERCMP2|HRTIM_OUTPUTSET_MASTERCMP3
                               |HRTIM_OUTPUTSET_TIMCMP2|HRTIM_OUTPUTSET_TIMCMP4;
   pOutputCfg.ResetSource = HRTIM_OUTPUTRESET_TIMCMP1|HRTIM_OUTPUTRESET_TIMCMP3
@@ -177,7 +211,6 @@ void MX_HRTIM1_Init(void)
 
   /* USER CODE END HRTIM1_Init 2 */
   HAL_HRTIM_MspPostInit(&hhrtim1);
-
 }
 
 void HAL_HRTIM_MspInit(HRTIM_HandleTypeDef* hrtimHandle)

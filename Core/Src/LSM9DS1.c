@@ -318,8 +318,8 @@ HAL_StatusTypeDef LSM9DS1_Init(void)
 
     /*
      * Step-5 加速度计配置
-     * - CTRL_REG6_XL(0x20)=0x70:
-     *   ODR_XL=119Hz, FS_XL=±4g, 带宽自动由 ODR 决定
+        * - CTRL_REG6_XL(0x20)=0x60:
+        *   ODR_XL=119Hz, FS_XL=±2g, 带宽自动由 ODR 决定
      * - CTRL_REG7_XL(0x21)=0xC4:
      *   HR=1 高分辨率, DCF=00(ODR/9), FDS=1 输出滤波后数据
      */
@@ -335,7 +335,7 @@ HAL_StatusTypeDef LSM9DS1_Init(void)
     /* 初始化“寄存器镜像 + 换算系数 + 运行态统计” */
     s_ctrl_reg1_g_shadow = LSM9DS1_INIT_CTRL_REG1_G;
     s_ctrl_reg6_xl_shadow = LSM9DS1_INIT_CTRL_REG6_XL;
-    LSM9DS1_UpdateSensitivity(LSM9DS1_ACCEL_FS_4G, LSM9DS1_GYRO_FS_500DPS);
+    LSM9DS1_UpdateSensitivity(LSM9DS1_ACCEL_FS_2G, LSM9DS1_GYRO_FS_500DPS);
 
     s_dma_busy = 0U;
     s_runtime = (LSM9DS1_RuntimeState_t){0};

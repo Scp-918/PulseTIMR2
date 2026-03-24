@@ -61,7 +61,8 @@ extern "C" {
 #define LSM9DS1_INIT_INT1_CTRL          0x00U
 #define LSM9DS1_INIT_CTRL_REG1_G        0x68U
 #define LSM9DS1_INIT_CTRL_REG3_G        0x46U
-#define LSM9DS1_INIT_CTRL_REG6_XL       0x70U
+/* 0x60: ODR_XL=119Hz, FS_XL=+-2g */
+#define LSM9DS1_INIT_CTRL_REG6_XL       0x60U
 #define LSM9DS1_INIT_CTRL_REG7_XL       0xC4U
 
 /* 阻塞读写默认超时（毫秒） */
