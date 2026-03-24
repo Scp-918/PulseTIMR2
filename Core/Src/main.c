@@ -120,6 +120,10 @@ static uint8_t g_adc_dma_raw[6][AD4007_FRAME_BYTES] = {{0}};
 static SensorDataFrame_t g_group_frame = {0};
 static SensorDataFrame_t g_ble_send_frame = {0};
 static uint8_t g_ble_send_pending = 0U;
+static SensorDataFrame_t g_tx_prev_frame = {0};
+static SensorDataFrame_t g_tx_prev_prev_frame = {0};
+static uint8_t g_tx_prev_valid = 0U;
+static uint8_t g_tx_prev_prev_valid = 0U;
 
 static uint32_t g_adc_dma_start_fail_count = 0U;
 static uint32_t g_adc_dma_decode_fail_count = 0U;
@@ -327,6 +331,31 @@ static uint8_t FrameHasIMUPayload(const SensorDataFrame_t *frame)
   return 0U;
 }
 
+/* 若“待发送帧”PPG全0，则用前后帧PPG均值修复。 */
+static void PatchZeroPPGWithNeighborAverage(SensorDataFrame_t *out_frame,
+                                            const SensorDataFrame_t *prev_frame,
+                                            const SensorDataFrame_t *next_frame)
+{
+  uint32_t sum;
+
+  if ((out_frame == NULL) || (prev_frame == NULL) || (next_frame == NULL))
+  {
+    return;
+  }
+
+  if (FrameHasPPGPayload(out_frame) != 0U)
+  {
+    return;
+  }
+
+  sum = prev_frame->ppg_data[0] + next_frame->ppg_data[0];
+  out_frame->ppg_data[0] = (sum >> 1);
+  sum = prev_frame->ppg_data[1] + next_frame->ppg_data[1];
+  out_frame->ppg_data[1] = (sum >> 1);
+  sum = prev_frame->ppg_data[2] + next_frame->ppg_data[2];
+  out_frame->ppg_data[2] = (sum >> 1);
+}
+
 static void Sensor_IngestPartialFramesForCurrentGroup(void)
 {
   SensorDataFrame_t frame = {0};
@@ -384,6 +413,12 @@ static void PrepareAndCommitGroupFrame(void)
 {
   uint8_t committed = 0U;
 
+  /* UART DMA 忙时不推进缓存，避免丢失“上一帧发送”时序关系。 */
+  if (g_ble_send_pending != 0U)
+  {
+    return;
+  }
+
   Sensor_IngestPartialFramesForCurrentGroup();
 
 #if 0
@@ -395,12 +430,24 @@ static void PrepareAndCommitGroupFrame(void)
 #endif
 
   __disable_irq();
-  if (g_ble_send_pending == 0U)
+
+  /* 一帧延迟发送：当前周期到来时，发送上一周期缓存。 */
+  if (g_tx_prev_valid != 0U)
   {
-    g_ble_send_frame = g_group_frame;
+    g_ble_send_frame = g_tx_prev_frame;
+    if (g_tx_prev_prev_valid != 0U)
+    {
+      PatchZeroPPGWithNeighborAverage(&g_ble_send_frame, &g_tx_prev_prev_frame, &g_group_frame);
+    }
     g_ble_send_pending = 1U;
-    committed = 1U;
   }
+
+  g_tx_prev_prev_frame = g_tx_prev_frame;
+  g_tx_prev_prev_valid = g_tx_prev_valid;
+  g_tx_prev_frame = g_group_frame;
+  g_tx_prev_valid = 1U;
+
+  committed = 1U;
   __enable_irq();
 
   if (committed != 0U)
