@@ -91,11 +91,12 @@ void MX_HRTIM1_Init(void)
     Error_Handler();
   }
   /*
-   * 切换到 8us 版本：Master CMP3=24300。
-   * 15us 参数 24750 保留用于回滚对照。
+   * Master CMP3 调整到约 1000us。
+   * 旧参数保留用于回滚对照。
    */
+  // pCompareCfg.CompareValue = 24300;
   // pCompareCfg.CompareValue = 24750;
-  pCompareCfg.CompareValue = 24300;
+  pCompareCfg.CompareValue = 25000;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_MASTER, HRTIM_COMPAREUNIT_3, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
