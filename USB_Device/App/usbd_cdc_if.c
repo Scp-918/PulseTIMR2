@@ -352,8 +352,11 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
   // USB_Rx_Len = (*Len < 256) ? *Len : 256;
   // memcpy(USB_Rx_Buffer, Buf, USB_Rx_Len);
   // USB_Rx_Flag = 1; // 触发标志位
+  /* 单向链路防回环模式：USB RX 不再回写到 USART1/BLE。 */
+#if 0
   CDC_Transmit_FS2(Buf, *Len);
   HAL_UART_Transmit(&huart1, Buf, *Len, 100);
+#endif
 
   // 2. 【原有代码】准备下一次接收
   // 这一步非常重要，必须告知 USB 驱动重新准备好接收缓冲区，否则将无法接收后续数据

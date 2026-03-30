@@ -14,6 +14,9 @@ static uint32_t s_ble_tx_dma_drop_count = 0U;
 static uint8_t *s_ble_rx_dma_buffer = NULL;
 static uint16_t s_ble_rx_dma_max_len = 0U;
 static char s_ble_last_rx_command[BLE_LAST_CMD_MAX_LEN] = {0};
+static uint8_t s_ble_last_rx_frame[BLE_RX_FRAME_MAX_LEN] = {0};
+static volatile uint16_t s_ble_last_rx_frame_len = 0U;
+static volatile uint8_t s_ble_last_rx_frame_ready = 0U;
 
 /* 初始化阶段临时接收缓冲：用于阻塞式等待应答。 */
 static uint8_t s_ble_init_rx_buffer[BLE_LAST_CMD_MAX_LEN] = {0};
@@ -331,6 +334,34 @@ HAL_StatusTypeDef BLE_Start_Receive_DMA(uint8_t *rx_buffer, uint16_t max_len)
   return HAL_OK;
 }
 
+uint8_t BLE_FetchRxFrame(uint8_t *out, uint16_t max_len, uint16_t *out_len)
+{
+  uint16_t copy_len;
+
+  if ((out == NULL) || (out_len == NULL) || (max_len == 0U))
+  {
+    return 0U;
+  }
+
+  if (s_ble_last_rx_frame_ready == 0U)
+  {
+    return 0U;
+  }
+
+  __disable_irq();
+  copy_len = s_ble_last_rx_frame_len;
+  if (copy_len > max_len)
+  {
+    copy_len = max_len;
+  }
+  memcpy(out, s_ble_last_rx_frame, copy_len);
+  s_ble_last_rx_frame_ready = 0U;
+  __enable_irq();
+
+  *out_len = copy_len;
+  return 1U;
+}
+
 uint32_t BLE_Get_TxBusyDropCount(void)
 {
   return s_ble_tx_dma_drop_count;
@@ -358,6 +389,7 @@ uint8_t BLE_IsConnected(void)
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
   uint16_t copy_len;
+  uint16_t raw_len;
 
   if (huart != &huart1)
   {
@@ -378,6 +410,15 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
   memcpy(s_ble_last_rx_command, s_ble_rx_dma_buffer, copy_len);
   s_ble_last_rx_command[copy_len] = '\0';
+
+  raw_len = Size;
+  if (raw_len > BLE_RX_FRAME_MAX_LEN)
+  {
+    raw_len = BLE_RX_FRAME_MAX_LEN;
+  }
+  memcpy(s_ble_last_rx_frame, s_ble_rx_dma_buffer, raw_len);
+  s_ble_last_rx_frame_len = raw_len;
+  s_ble_last_rx_frame_ready = 1U;
 
   /* 去掉尾部回车换行，便于字符串匹配。 */
   while (copy_len > 0U)

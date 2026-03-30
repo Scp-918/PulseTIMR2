@@ -61,6 +61,7 @@ extern "C" {
 
 /* [接收命令缓存上限] 回调中保存最近一条指令，便于调试/上层读取。 */
 #define BLE_LAST_CMD_MAX_LEN            128U
+#define BLE_RX_FRAME_MAX_LEN            256U
 
 /* [示例参数边界] 用于演示 SET_PULSE_T=... 的解析与参数保护。 */
 #define BLE_PULSE_T_MIN_US              100U
@@ -106,6 +107,15 @@ HAL_StatusTypeDef BLE_Transmit_Data_DMA(uint8_t *data, uint16_t len);
  * @retval HAL_OK/HAL_ERROR。
  */
 HAL_StatusTypeDef BLE_Start_Receive_DMA(uint8_t *rx_buffer, uint16_t max_len);
+
+/*
+ * @brief 取出一帧最近接收到的 BLE 串口数据（由 UART IDLE+DMA 回调写入）。
+ * @param out      输出缓存。
+ * @param max_len  输出缓存容量。
+ * @param out_len  实际拷贝长度。
+ * @retval 1: 取到新数据；0: 当前无新数据或参数非法。
+ */
+uint8_t BLE_FetchRxFrame(uint8_t *out, uint16_t max_len, uint16_t *out_len);
 
 /* @brief 获取 DMA 发送忙导致的丢帧计数。 */
 uint32_t BLE_Get_TxBusyDropCount(void);

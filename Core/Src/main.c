@@ -41,6 +41,8 @@
 #include "MAX30101.h"
 #include "sensor_ringbuffer.h"
 #include "LSM9DS1.h"
+#include "usb_device.h"
+#include "usbd_cdc_if.h"
 #include <string.h>
 
 /* USER CODE END Includes */
@@ -115,6 +117,20 @@ static uint8_t g_ble_frame[BLE_COMM_SINGLE_FRAME_SIZE];
 static uint32_t g_group_total_count = 0U;
 static uint32_t g_group_miss_ppg_count = 0U;
 static uint32_t g_group_miss_imu_count = 0U;
+
+/* BLE 串口 DMA 接收缓存：用于上位机->USART1 的透传链路。 */
+static uint8_t g_ble_uart_rx_dma_buf[BLE_RX_FRAME_MAX_LEN] = {0};
+/* 主循环从 BLE 模块取帧后，经 USB CDC 发给上位机。 */
+static uint8_t g_ble_to_usb_buf[BLE_RX_FRAME_MAX_LEN] = {0};
+/* BLE->USB 文本方向标记与行尾。 */
+static const uint8_t g_ble_to_usb_tag[] = "[BLE->USB] ";
+static const uint8_t g_ble_to_usb_eol[] = "\r\n";
+/* 每秒自检发送逻辑已停用，保留旧定义便于回滚。 */
+#if 0
+static const uint8_t g_check_ble_text[] = "[SYS->BLE] check\r\n";
+static const uint8_t g_check_usb_text[] = "[SYS->USB] check\r\n";
+static uint32_t g_last_check_tick_ms = 0U;
+#endif
 
 /* USER CODE END PV */
 
@@ -464,6 +480,7 @@ int main(void)
   MX_SPI1_Init();
   MX_SPI3_Init();
   MX_USART1_UART_Init();
+  MX_USB_Device_Init();
   MX_HRTIM1_Init();
   MX_TIM1_Init();
 
@@ -528,6 +545,13 @@ int main(void)
   (void)memset(&g_group_frame, 0, sizeof(g_group_frame));
   (void)memset(&g_ble_send_frame, 0, sizeof(g_ble_send_frame));
 
+  /* 在原采样链路恢复后，继续启用 BLE RX DMA，供 BLE->USB 透传链路使用。 */
+
+  if (BLE_Start_Receive_DMA(g_ble_uart_rx_dma_buf, (uint16_t)sizeof(g_ble_uart_rx_dma_buf)) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   /* 阶段9：启动 HRTIM 计数器与输出，进入硬件触发采样状态。 */
   if (HAL_HRTIM_WaveformCountStart_IT(&hhrtim1, HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A) != HAL_OK)
   {
@@ -580,12 +604,6 @@ int main(void)
     /* USER CODE BEGIN 3 */
     ADC_TryHarvestPendingSample();
 
-    /*
-     * 主协议帧发送路径（当前正式生效）：
-     * 1) 由中断侧置位 g_group_frame_ready_for_send；
-     * 2) 主循环提交并切换一帧延迟缓存；
-     * 3) 若 UART DMA 空闲，则打包并发送固定长度协议帧。
-     */
     if (g_group_frame_ready_for_send != 0U)
     {
       PrepareAndCommitGroupFrame();
@@ -599,6 +617,24 @@ int main(void)
         g_ble_send_pending = 0U;
       }
     }
+
+    /* 将 USART1 DMA 收到的 BLE 数据透传到 USB CDC。 */
+    {
+      uint16_t rx_len = 0U;
+      if (BLE_FetchRxFrame(g_ble_to_usb_buf, (uint16_t)sizeof(g_ble_to_usb_buf), &rx_len) != 0U)
+      {
+        if (rx_len > 0U)
+        {
+          (void)CDC_Transmit_FS2((uint8_t *)g_ble_to_usb_tag,
+                                 (uint16_t)(sizeof(g_ble_to_usb_tag) - 1U));
+          (void)CDC_Transmit_FS2(g_ble_to_usb_buf, rx_len);
+          (void)CDC_Transmit_FS2((uint8_t *)g_ble_to_usb_eol,
+                                 (uint16_t)(sizeof(g_ble_to_usb_eol) - 1U));
+        }
+      }
+    }
+
+    /* 每秒 check 发送已按需求移除（旧逻辑见上方 #if 0 变量定义）。 */
   }
   /* USER CODE END 3 */
 }
