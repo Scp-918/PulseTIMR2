@@ -29,6 +29,72 @@ static uint8_t s_rd_ptr_raw = 0U;
 static uint8_t s_fifo_dma_buffer[MAX30101_FIFO_DEPTH * MAX30101_SAMPLE_BYTES] = {0};
 static SensorRingBuffer_t *s_ring_buffer = NULL;
 
+/*
+ * 运行时解码剖面（由配置寄存器同步驱动）：
+ * s_active_led_count:
+ *   每个 FIFO 样本里实际包含的 LED 通道数（1/2/3）。
+ * s_active_led_map:
+ *   FIFO 顺序槽位 -> 输出 ppg_data 下标映射。
+ *   例如 Red->IR 双色时，map = {1,2}。
+ * s_led_pw_code / s_ppg_right_shift / s_ppg_valid_mask:
+ *   按 LED_PW 决定位宽对齐策略。
+ *   MAX30101 FIFO 输出是左对齐码，实际有效位需右移并掩码。
+ */
+static uint8_t s_active_led_count = 3U;
+static uint8_t s_active_led_map[3] = {0U, 1U, 2U}; /* 0=Green,1=Red,2=IR */
+static uint8_t s_led_pw_code = 0x02U;
+static uint8_t s_ppg_right_shift = 1U;
+static uint32_t s_ppg_valid_mask = 0x1FFFFU;
+
+static void MAX30101_UpdateRuntimeDecodeProfile(uint8_t led_count,
+                                                const uint8_t *led_map,
+                                                uint8_t led_pw_code)
+{
+    uint8_t count;
+    uint8_t i;
+    uint8_t bits;
+
+    count = led_count;
+    if (count == 0U)
+    {
+        count = 1U;
+    }
+    else if (count > 3U)
+    {
+        count = 3U;
+    }
+
+    s_active_led_count = count;
+
+    if (led_map != NULL)
+    {
+        for (i = 0U; i < count; i++)
+        {
+            s_active_led_map[i] = (uint8_t)(led_map[i] % 3U);
+        }
+    }
+
+    s_led_pw_code = (uint8_t)(led_pw_code & 0x03U);
+
+    /*
+     * LED_PW 与有效位关系：
+     * 00->15bit, 01->16bit, 10->17bit, 11->18bit。
+     * FIFO 原始 18bit 左对齐到 24bit，
+     * 因此右移位数 = 18 - valid_bits = 3 - led_pw_code。
+     */
+    s_ppg_right_shift = (uint8_t)(3U - s_led_pw_code);
+    bits = (uint8_t)(15U + s_led_pw_code);
+
+    if (bits >= 32U)
+    {
+        s_ppg_valid_mask = 0xFFFFFFFFUL;
+    }
+    else
+    {
+        s_ppg_valid_mask = (uint32_t)((1UL << bits) - 1UL);
+    }
+}
+
 uint8_t MAX30101_WriteReg(uint8_t reg, uint8_t data)
 {
     /*
@@ -209,7 +275,151 @@ uint8_t MAX30101_Init(void)
     s_runtime.last_wr_ptr = 0U;
     s_runtime.last_rd_ptr = 0U;
     s_runtime.pending_samples = 0U;
+    MAX30101_UpdateRuntimeDecodeProfile(3U, s_active_led_map, 0x02U);
 
+    return 1U;
+}
+
+uint8_t MAX30101_ApplyBleParamConfig(uint8_t mode_code,
+                                     uint8_t multi_mode_code,
+                                     uint8_t green_current,
+                                     uint8_t red_current,
+                                     uint8_t ir_current,
+                                     uint8_t adc_rge_code,
+                                     uint8_t led_pw_code,
+                                     uint8_t spo2_sr_code,
+                                     uint8_t smp_ave_code)
+{
+    uint8_t spo2_cfg;
+    uint8_t fifo_cfg;
+    uint8_t mode_cfg;
+    uint8_t slot1_slot2;
+    uint8_t slot3_slot4;
+    uint8_t led_count = 0U;
+    uint8_t led_map[3] = {0U, 1U, 2U};
+
+    /* SPO2_CONFIG: [6:5]=RGE [4:2]=SR [1:0]=LED_PW */
+    spo2_cfg = (uint8_t)((((adc_rge_code & 0x03U) << 5)) |
+                         (((spo2_sr_code & 0x07U) << 2)) |
+                         (led_pw_code & 0x03U));
+    /* FIFO_CONFIG: [7:5]=SMP_AVE [4]=ROLLOVER_EN [3:0]=A_FULL */
+    fifo_cfg = (uint8_t)(((smp_ave_code & 0x07U) << 5) | (1U << 4) | 0x0FU);
+
+    mode_cfg = 0x07U;
+    slot1_slot2 = 0x13U;
+    slot3_slot4 = 0x02U;
+
+    if (mode_code == 0x01U)
+    {
+        /* Multi-LED 模式：sub-mode 决定时隙组合。 */
+        switch (multi_mode_code)
+        {
+            case 0x01U: /* Green -> Red -> IR */
+                mode_cfg = 0x07U;
+                slot1_slot2 = 0x13U;
+                slot3_slot4 = 0x02U;
+                led_count = 3U;
+                led_map[0] = 0U;
+                led_map[1] = 1U;
+                led_map[2] = 2U;
+                break;
+
+            case 0x02U: /* Green only */
+                mode_cfg = 0x07U;
+                slot1_slot2 = 0x03U;
+                slot3_slot4 = 0x00U;
+                led_count = 1U;
+                led_map[0] = 0U;
+                break;
+
+            case 0x03U: /* Red only */
+                mode_cfg = 0x07U;
+                slot1_slot2 = 0x01U;
+                slot3_slot4 = 0x00U;
+                led_count = 1U;
+                led_map[0] = 1U;
+                break;
+
+            case 0x04U: /* IR only */
+                mode_cfg = 0x07U;
+                slot1_slot2 = 0x02U;
+                slot3_slot4 = 0x00U;
+                led_count = 1U;
+                led_map[0] = 2U;
+                break;
+
+            case 0x05U: /* Red -> IR */
+                mode_cfg = 0x07U;
+                slot1_slot2 = 0x21U;
+                slot3_slot4 = 0x00U;
+                led_count = 2U;
+                led_map[0] = 1U;
+                led_map[1] = 2U;
+                break;
+
+            default:
+                return 0U;
+        }
+    }
+    else if (mode_code == 0x02U)
+    {
+        /* HR mode: RED only */
+        mode_cfg = 0x02U;
+        slot1_slot2 = 0x00U;
+        slot3_slot4 = 0x00U;
+        led_count = 1U;
+        led_map[0] = 1U;
+    }
+    else if (mode_code == 0x03U)
+    {
+        /* SpO2 mode: RED + IR */
+        mode_cfg = 0x03U;
+        slot1_slot2 = 0x00U;
+        slot3_slot4 = 0x00U;
+        led_count = 2U;
+        led_map[0] = 1U;
+        led_map[1] = 2U;
+    }
+    else
+    {
+        return 0U;
+    }
+
+    /* 先更新 LED 电流，再更新采样参数和模式，减少切换窗口不一致。 */
+    if ((MAX30101_SetLEDCurrent(MAX30101_LED_GREEN, green_current) == 0U) ||
+        (MAX30101_SetLEDCurrent(MAX30101_LED_RED, red_current) == 0U) ||
+        (MAX30101_SetLEDCurrent(MAX30101_LED_IR, ir_current) == 0U))
+    {
+        return 0U;
+    }
+
+    if (MAX30101_WriteReg(MAX30101_REG_FIFO_CONFIG, fifo_cfg) == 0U)
+    {
+        return 0U;
+    }
+
+    if (MAX30101_WriteReg(MAX30101_REG_SPO2_CONFIG, spo2_cfg) == 0U)
+    {
+        return 0U;
+    }
+
+    /* 先写 slot，再写 mode，保证切模式瞬间 FIFO 排列可控。 */
+    if ((MAX30101_WriteReg(MAX30101_REG_MULTI_LED_CTRL1, slot1_slot2) == 0U) ||
+        (MAX30101_WriteReg(MAX30101_REG_MULTI_LED_CTRL2, slot3_slot4) == 0U))
+    {
+        return 0U;
+    }
+
+    if (MAX30101_WriteReg(MAX30101_REG_MODE_CONFIG, mode_cfg) == 0U)
+    {
+        return 0U;
+    }
+
+    /*
+     * 寄存器写入成功后，同步更新软件解码剖面：
+     * 后续 DMA 读取长度、通道映射和位宽对齐都依赖此剖面。
+     */
+    MAX30101_UpdateRuntimeDecodeProfile(led_count, led_map, led_pw_code);
     return 1U;
 }
 
@@ -304,7 +514,8 @@ void MAX30101_PointerRxCpltCallback(void)
         available_samples = (uint8_t)(sizeof(s_fifo_dma_buffer) / MAX30101_SAMPLE_BYTES);
     }
 
-    dma_len = (uint16_t)available_samples * (uint16_t)MAX30101_SAMPLE_BYTES;
+    /* DMA 长度按“当前有效通道数”动态计算，避免单色/双色时多读。 */
+    dma_len = (uint16_t)available_samples * ((uint16_t)s_active_led_count * (uint16_t)MAX30101_BYTES_PER_LED);
     s_runtime.pending_samples = available_samples;
     s_async_state = MAX30101_ASYNC_FIFO_DMA;
 
@@ -327,6 +538,7 @@ void MAX30101_PointerRxCpltCallback(void)
 void MAX30101_DataRxCpltCallback(uint8_t *dma_buffer, uint8_t sample_count)
 {
     uint8_t i;
+    uint8_t sample_bytes;
 
     /* 容错保护：空缓冲或空样本直接返回 */
     if ((dma_buffer == NULL) || (sample_count == 0U))
@@ -340,37 +552,50 @@ void MAX30101_DataRxCpltCallback(uint8_t *dma_buffer, uint8_t sample_count)
         return;
     }
 
+    /* 每个样本字节数 = 有效通道数 * 3 字节。 */
+    sample_bytes = (uint8_t)(s_active_led_count * MAX30101_BYTES_PER_LED);
+    if (sample_bytes == 0U)
+    {
+        return;
+    }
+
     for (i = 0U; i < sample_count; i++)
     {
-        /* 每帧 9 字节：G[0..2], R[3..5], IR[6..8] */
-        uint8_t base = (uint8_t)(i * MAX30101_SAMPLE_BYTES);
-        uint32_t green_raw;
-        uint32_t red_raw;
-        uint32_t ir_raw;
+        uint16_t base = (uint16_t)i * (uint16_t)sample_bytes;
+        uint8_t ch;
         SensorDataFrame_t frame;
-
-        /*
-         * 每个通道 3 字节拼接为 24bit 左对齐原始码，
-         * 在 LED_PW=215us(17-bit) 配置下，按需求统一右移 1 位得到真实 ADC 值。
-         */
-        green_raw = ((uint32_t)dma_buffer[base] << 16) |
-                                ((uint32_t)dma_buffer[base + 1U] << 8) |
-                                ((uint32_t)dma_buffer[base + 2U]);
-        red_raw = ((uint32_t)dma_buffer[base + 3U] << 16) |
-                            ((uint32_t)dma_buffer[base + 4U] << 8) |
-                            ((uint32_t)dma_buffer[base + 5U]);
-        ir_raw = ((uint32_t)dma_buffer[base + 6U] << 16) |
-                         ((uint32_t)dma_buffer[base + 7U] << 8) |
-                         ((uint32_t)dma_buffer[base + 8U]);
+        uint32_t raw;
+        uint32_t aligned;
+        uint8_t ppg_index;
 
         /*
          * 当前工程 RingBuffer 存储的是“整帧传感器融合结构体”。
          * 这里先清零其余字段，仅填充 ppg_data，确保结构体内容确定。
          */
         frame = (SensorDataFrame_t){0};
-        frame.ppg_data[0] = (green_raw >> 1) & 0x1FFFFU;
-        frame.ppg_data[1] = (red_raw >> 1) & 0x1FFFFU;
-        frame.ppg_data[2] = (ir_raw >> 1) & 0x1FFFFU;
+
+        /*
+         * 按当前模式逐通道解包：
+         * 1) 3字节拼 24bit
+         * 2) 右移对齐到有效位
+         * 3) 按 led_map 写入 G/R/IR 对应槽位
+         * 未被映射到的颜色保持 0（满足单色/双色解算需求）。
+         */
+        for (ch = 0U; ch < s_active_led_count; ch++)
+        {
+            uint16_t off = (uint16_t)(base + ((uint16_t)ch * MAX30101_BYTES_PER_LED));
+
+            raw = ((uint32_t)dma_buffer[off] << 16) |
+                  ((uint32_t)dma_buffer[off + 1U] << 8) |
+                  ((uint32_t)dma_buffer[off + 2U]);
+            aligned = (raw >> s_ppg_right_shift) & s_ppg_valid_mask;
+
+            ppg_index = s_active_led_map[ch];
+            if (ppg_index < 3U)
+            {
+                frame.ppg_data[ppg_index] = aligned;
+            }
+        }
 
         /* 入队失败（极端情况下）无需阻塞；RingBuffer 内部已实现满载覆盖策略 */
         (void)RingBuffer_Push(s_ring_buffer, &frame);
@@ -408,84 +633,44 @@ uint8_t MAX30101_SetLEDMode(MAX30101_LedMode_t mode,
                                                         uint8_t spo2_sr_code,
                                                         uint8_t smp_ave_code)
 {
-    uint8_t spo2_cfg;
-    uint8_t fifo_cfg;
-    uint8_t mode_cfg;
-    uint8_t slot1_slot2;
-    uint8_t slot3_slot4;
-
-    /*
-     * 运行时组合寄存器：
-     * - 固定 RGE=8192nA(0b10)
-     * - SR 由上位机给出（3bit）
-     * - 固定 LED_PW=215us(17-bit, 0b10)
-     */
-    /*
-     * spo2_cfg: [6:5]=RGE=0b10 [4:2]=SR [1:0]=PW=0b10
-     * fifo_cfg: [7:5]=SMP_AVE [4]=ROLLOVER_EN=1 [3:0]=A_FULL=0x0F
-     */
-    spo2_cfg = (uint8_t)((0x02U << 5) | ((spo2_sr_code & 0x07U) << 2) | 0x02U);
-    fifo_cfg = (uint8_t)(((smp_ave_code & 0x07U) << 5) | (1U << 4) | 0x0FU);
-
     switch (mode)
     {
         case MAX30101_LED_MODE_GREEN_ONLY:
-            /* 使用 Multi-LED + 仅 SLOT1=GREEN 实现“仅绿光” */
-            mode_cfg = 0x07U;
-            slot1_slot2 = 0x03U;
-            slot3_slot4 = 0x00U;
-            break;
+            return MAX30101_ApplyBleParamConfig(0x01U,
+                                                0x02U,
+                                                green_current,
+                                                red_current,
+                                                ir_current,
+                                                0x02U,
+                                                0x02U,
+                                                spo2_sr_code,
+                                                smp_ave_code);
 
         case MAX30101_LED_MODE_SPO2:
-            /* 原生 SpO2 模式：RED + IR */
-            mode_cfg = 0x03U;
-            slot1_slot2 = 0x00U;
-            slot3_slot4 = 0x00U;
-            break;
+            return MAX30101_ApplyBleParamConfig(0x03U,
+                                                0x01U,
+                                                green_current,
+                                                red_current,
+                                                ir_current,
+                                                0x02U,
+                                                0x02U,
+                                                spo2_sr_code,
+                                                smp_ave_code);
 
         case MAX30101_LED_MODE_MULTI_G_R_IR:
-            /* 三光路轮切：Green -> Red -> IR */
-            mode_cfg = 0x07U;
-            slot1_slot2 = 0x13U;
-            slot3_slot4 = 0x02U;
-            break;
+            return MAX30101_ApplyBleParamConfig(0x01U,
+                                                0x01U,
+                                                green_current,
+                                                red_current,
+                                                ir_current,
+                                                0x02U,
+                                                0x02U,
+                                                spo2_sr_code,
+                                                smp_ave_code);
 
         default:
             return 0U;
     }
-
-    /* 先更新 LED 电流，保证模式切换后立即使用新电流参数 */
-    if ((MAX30101_SetLEDCurrent(MAX30101_LED_GREEN, green_current) == 0U) ||
-            (MAX30101_SetLEDCurrent(MAX30101_LED_RED, red_current) == 0U) ||
-            (MAX30101_SetLEDCurrent(MAX30101_LED_IR, ir_current) == 0U))
-    {
-        return 0U;
-    }
-
-    /* 再更新采样/平均寄存器 */
-    if (MAX30101_WriteReg(MAX30101_REG_FIFO_CONFIG, fifo_cfg) == 0U)
-    {
-        return 0U;
-    }
-
-    if (MAX30101_WriteReg(MAX30101_REG_SPO2_CONFIG, spo2_cfg) == 0U)
-    {
-        return 0U;
-    }
-
-    /* 先写 slots 再写 mode，避免切换瞬间 FIFO 通道顺序与预期不一致 */
-    if ((MAX30101_WriteReg(MAX30101_REG_MULTI_LED_CTRL1, slot1_slot2) == 0U) ||
-            (MAX30101_WriteReg(MAX30101_REG_MULTI_LED_CTRL2, slot3_slot4) == 0U))
-    {
-        return 0U;
-    }
-
-    if (MAX30101_WriteReg(MAX30101_REG_MODE_CONFIG, mode_cfg) == 0U)
-    {
-        return 0U;
-    }
-
-    return 1U;
 }
 
 void MAX30101_I2CMemRxCpltHandler(I2C_HandleTypeDef *hi2c)

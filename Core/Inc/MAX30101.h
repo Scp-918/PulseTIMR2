@@ -137,6 +137,17 @@ uint8_t MAX30101_SetLEDMode(MAX30101_LedMode_t mode,
 														uint8_t spo2_sr_code,
 														uint8_t smp_ave_code);
 
+/* 按 BLE 13 字节协议直接下发 MAX30101 组合配置。 */
+uint8_t MAX30101_ApplyBleParamConfig(uint8_t mode_code,
+															 uint8_t multi_mode_code,
+															 uint8_t green_current,
+															 uint8_t red_current,
+															 uint8_t ir_current,
+															 uint8_t adc_rge_code,
+															 uint8_t led_pw_code,
+															 uint8_t spo2_sr_code,
+															 uint8_t smp_ave_code);
+
 /* 状态查询 */
 const MAX30101_RuntimeState_t *MAX30101_GetRuntimeState(void);
 
