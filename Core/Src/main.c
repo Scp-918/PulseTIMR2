@@ -63,7 +63,7 @@
 
 /*
  * BLE 参数帧固定长度（13字节）：
- * [0]=0xAA [1]=0xBB
+ * [0]=0xAB [1]=0xCD
  * [2]=PPG mode(01~03)
  * [3]=PPG multi sub-mode(01~05，仅 mode=01 有效)
  * [4]=Green 电流档位(00~09)
@@ -141,7 +141,7 @@ static uint8_t g_ble_rx_parse_buf[BLE_RX_FRAME_MAX_LEN] = {0};
 
 /* 单片机当前生效传感参数数组（协议格式与上位机一致）。 */
 static volatile uint8_t g_sensor_param_array[SENSOR_PARAM_FRAME_LEN] = {
-  0xAAU, 0xBBU,
+  0xABU, 0xCDU,
   0x01U, /* mode: Multi-LED */
   0x01U, /* multimode: G-R-IR */
   0x05U, /* green level */
@@ -444,7 +444,7 @@ static HAL_StatusTypeDef SensorParam_ApplyIMU(const uint8_t *params)
 
 /*
  * 从 UART DMA 字节流中提取并校验 13 字节参数帧：
- * - 允许在长串流中滑窗查找 AA BB ... EF FA。
+ * - 允许在长串流中滑窗查找 AB CD ... EF FA。
  * - 逐字段做范围校验，过滤噪声帧/半包。
  * - 非 Multi 模式时，sub-mode 固定要求 0x01（保留位语义一致）。
  */
@@ -460,8 +460,8 @@ static uint8_t SensorParam_ParseFrame(const uint8_t *rx, uint16_t rx_len, uint8_
 
   for (i = 0U; i <= (uint16_t)(rx_len - SENSOR_PARAM_FRAME_LEN); i++)
   {
-    if ((rx[i] == 0xAAU) &&
-        (rx[i + 1U] == 0xBBU) &&
+    if ((rx[i] == 0xABU) &&
+      (rx[i + 1U] == 0xCDU) &&
         (rx[i + 11U] == 0xEFU) &&
         (rx[i + 12U] == 0xFAU))
     {
