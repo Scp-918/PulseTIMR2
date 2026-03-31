@@ -1016,11 +1016,22 @@ int main(void)
     /* USER CODE BEGIN 3 */
     ADC_TryHarvestPendingSample();
 
+    /*
+     * 仅在 phase4 提交标志到来后执行一次组帧提交：
+     * - 从 ringbuffer 合并本大周期最新 PPG/IMU
+     * - 维护一帧延迟发送管线
+     * - 根据禁发窗口决定是否产生 g_ble_send_pending
+     */
     if (g_group_frame_ready_for_send != 0U)
     {
       PrepareAndCommitGroupFrame();
     }
 
+    /*
+     * 发送阶段与采样阶段解耦：
+     * - 仅当上一帧已就绪且 UART DMA 空闲时发起发送
+     * - 发送成功后清 pending；若串口忙则保持 pending 等下一轮
+     */
     if (g_ble_send_pending != 0U)
     {
       BLE_PackSingleFrame(&g_ble_send_frame, g_ble_frame);
@@ -1030,7 +1041,11 @@ int main(void)
       }
     }
 
-    /* BLE UART DMA 收到上位机参数后，解析 13 字节参数帧并挂起“下一周期应用”。 */
+    /*
+     * BLE UART DMA 收到上位机参数后：
+     * 1) 在主循环完成帧提取与格式校验（避免中断中做复杂解析）
+     * 2) 仅置位 pending，实际寄存器写入延后到 HRTIM 固定相位执行
+     */
     {
       uint16_t rx_len = 0U;
 
@@ -1150,6 +1165,7 @@ void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
     {
       g_sensor_cfg_apply_cycle_active = 1U;
       g_sensor_drop_pipeline_once = 1U;
+      /* 先写 PPG 参数；失败仅置错误标记，不打断状态机。 */
       g_sensor_cfg_apply_error = (SensorParam_ApplyPPG(g_sensor_param_pending_buf) == 0U) ? 1U : 0U;
       ADC_ResetCycleAccumulator();
       (void)memset(&g_group_frame, 0, sizeof(g_group_frame));
@@ -1170,8 +1186,10 @@ void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
     {
       if (SensorParam_ApplyIMU(g_sensor_param_pending_buf) != HAL_OK)
       {
+        /* IMU 参数写失败同样只置位，防止打乱既定采样节拍。 */
         g_sensor_cfg_apply_error = 1U;
       }
+      /* 2/2 写完后清 pending，并进入“继续采样但禁发”窗口。 */
       g_sensor_param_pending = 0U;
       g_sensor_send_hold_countdown = SENSOR_SEND_HOLD_CYCLES;
     }

@@ -314,6 +314,11 @@ HAL_StatusTypeDef AD4007_Start_DMA_Rx(uint8_t *rx_buffer, uint16_t sample_count)
      * SPI 主机模式下，为了保证每一位都有 SCK，
      * 采用 TxRx DMA 并发送 0xFF dummy 字节流。
      */
+    /*
+     * 当前系统按“单脉冲单样本”工作：
+     * 每次 HRTIM 触发只读取 1 个 3-byte 样本，
+     * 并由上层在 3+3 窗内累加平均。
+     */
     if (sample_count == 1u)
     {
         return HAL_SPI_TransmitReceive_DMA(&hspi3,
@@ -342,6 +347,11 @@ HAL_StatusTypeDef AD4007_ProcessRawData(uint8_t *dma_buffer, uint16_t sample_cou
         return HAL_ERROR;
     }
 
+    /*
+     * 处理效果：
+     * 输出 out_avg_code 与 sample_count 成反比平滑噪声，
+     * 上层据此可分别得到 early/late 窗平均值。
+     */
     for (i = 0u; i < sample_count; i++)
     {
         const uint8_t *frame = &dma_buffer[(uint32_t)i * AD4007_FRAME_BYTES];

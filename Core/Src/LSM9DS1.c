@@ -409,7 +409,10 @@ HAL_StatusTypeDef LSM9DS1_TriggerRead_IT(void)
         return ret;
     }
 
-    /* 置忙后由 DMA 完成/错误回调负责清 busy。 */
+    /*
+     * 置忙后由 DMA 完成/错误回调负责清 busy。
+     * 这样主循环可通过 HAL_BUSY 自然退避，避免重入 SPI DMA。
+     */
     s_dma_busy = 1U;
     s_runtime.dma_busy = 1U;
     return HAL_OK;
@@ -554,6 +557,12 @@ HAL_StatusTypeDef LSM9DS1_SetFullScale(uint8_t accel_fs, uint8_t gyro_fs)
     s_ctrl_reg1_g_shadow = new_ctrl_reg1_g;
     s_accel_sens_mg_lsb = new_accel_sens;
     s_gyro_sens_mdps_lsb = new_gyro_sens;
+
+    /*
+     * 生效结果：
+     * 后续 LSM9DS1_AccelRawToG()/GyroRawToDps() 将自动使用新量程系数，
+     * 无需上层再区分“旧量程帧/新量程帧”计算公式。
+     */
 
     return HAL_OK;
 }

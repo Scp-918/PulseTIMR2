@@ -633,6 +633,11 @@ uint8_t MAX30101_SetLEDMode(MAX30101_LedMode_t mode,
                                                         uint8_t spo2_sr_code,
                                                         uint8_t smp_ave_code)
 {
+    /*
+     * 对外简化接口：
+     * - 上层只关心“模式语义”而非寄存器位；
+     * - 本函数把语义模式映射到 ApplyBleParamConfig 所需字段。
+     */
     switch (mode)
     {
         case MAX30101_LED_MODE_GREEN_ONLY:
@@ -726,6 +731,10 @@ void MAX30101_I2CMemRxCpltHandler(I2C_HandleTypeDef *hi2c)
         s_async_state = MAX30101_ASYNC_IDLE;
         s_runtime.busy = 0U;
 
+        /*
+         * 解包在“状态复位之后”执行：
+         * 即使解包耗时稍长，下一周期触发也能及时看到 IDLE 状态。
+         */
         MAX30101_DataRxCpltCallback(s_fifo_dma_buffer, samples);
         return;
     }
