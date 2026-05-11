@@ -70,7 +70,7 @@ graph TD
     C2 -- Yes --> C2_1[PrepareAndCommitGroupFrame: 环形缓冲出队与帧融合]
     C2 -- No --> C3
     C2_1 --> C3{g_ble_send_pending == 1?}
-    C3 -- Yes --> C3_1[BLE_PackSingleFrame: 组包 49 Bytes]
+    C3 -- Yes --> C3_1[BLE_PackSingleFrame: 组包 51 Bytes]
     C3_1 --> C3_2[BLE_Transmit_Data_DMA: 发送至上位机]
     C3 -- No --> Loop_Start
     C3_2 --> Loop_Start
@@ -202,7 +202,7 @@ typedef struct {
 
 ## 5. 通信协议帧结构
 
-上位机通信使用 `USART1` DMA 全速透传，波特率 `460800`。单帧协议定长 **49 字节**，结构紧凑且含校验。
+上位机通信使用 `USART1` DMA 全速透传，波特率 `460800`。单帧协议定长 **51 字节**，结构紧凑且含校验与源端帧序号。
 
 | 偏移 (Byte) | 长度 | 字段名称 | 序列化说明 (全部为小端序) |
 | :--- | :--- | :--- | :--- |
@@ -210,8 +210,9 @@ typedef struct {
 | `2-25` | 24 | ADC 区 | 4通道 × (Early 3B + Late 3B)。18位有符号数值使用 24 位小端传输 |
 | `26-34` | 9 | PPG 区 | 3通道 (Green, Red, IR) × 3B。原始无符号数值，右移 1 位映射 |
 | `35-46` | 12 | IMU 区 | 6通道 (Gx, Gy, Gz, Ax, Ay, Az) × 2B (`int16_t`) |
-| `47` | 1 | 校验和 | 从 Byte 2 开始至 Byte 46 的逐字节**异或和 (XOR)** |
-| `48` | 1 | 帧尾 | 固定标识 `0xCC` |
+| `47` | 1 | 校验和 | 从 Byte 2 开始至 Byte 46 的逐字节**异或和 (XOR)**，不包含 `frame_seq` |
+| `48-49` | 2 | 源端帧序号 | `frame_seq`，`uint16_t` 小端，每发送一帧自增并自然回绕 |
+| `50` | 1 | 帧尾 | 固定标识 `0xCC` |
 
 ### 5.1 新增：上位机参数配置帧（13 Bytes）
 

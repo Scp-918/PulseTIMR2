@@ -15,21 +15,22 @@ extern "C" {
  * =========================== */
 
 /*
- * [单帧长度] 固定 49 字节。
+ * [单帧长度] 固定 51 字节。
  * 帧结构严格对应：
  * - [0..1]   : 帧头
  * - [2..25]  : 4通道 ADC，每通道 early/late 各 3 字节，共 24 字节
  * - [26..34] : PPG 三路（G/R/IR），每路 3 字节，共 9 字节
- * - [35..46] : MIMU 六轴，每轴 2 字节，共 12 字节
- * - [47]     : XOR 校验（不含帧头）
- * - [48]     : 帧尾 0xCC
+ * - [35..46] : IMU 六轴，每轴 2 字节，共 12 字节
+ * - [47]     : XOR 校验，仅覆盖旧 payload [2..46]
+ * - [48..49] : 源端帧序号 frame_seq，uint16 小端，不参与 XOR
+ * - [50]     : 帧尾 0xCC
  */
-#define BLE_COMM_SINGLE_FRAME_SIZE          49U
+#define BLE_COMM_SINGLE_FRAME_SIZE          51U
 
 /* [批量帧数] 每次 DMA 发送 10 帧。 */
 #define BLE_COMM_BATCH_FRAME_COUNT          10U
 
-/* [批量发送字节数] 49 * 10 = 490 字节。 */
+/* [批量发送字节数] 随单帧长度与批量帧数自动计算。 */
 #define BLE_COMM_BATCH_TX_SIZE              (BLE_COMM_SINGLE_FRAME_SIZE * BLE_COMM_BATCH_FRAME_COUNT)
 
 /* [帧头/帧尾] */
@@ -59,9 +60,11 @@ extern "C" {
 #define BLE_COMM_IDX_IMU_END                46U
 
 #define BLE_COMM_IDX_CHECKSUM               47U
-#define BLE_COMM_IDX_TAIL0                  48U
+#define BLE_COMM_IDX_FRAME_SEQ_L            48U
+#define BLE_COMM_IDX_FRAME_SEQ_H            49U
+#define BLE_COMM_IDX_TAIL0                  50U
 
-/* [校验区间] 按协议要求：仅对 [2..46] 异或，帧头不参与。 */
+/* [校验区间] 按协议要求：仅对旧 payload [2..46] 异或，frame_seq 不参与。 */
 #define BLE_COMM_XOR_START_IDX              BLE_COMM_IDX_ADC_START
 #define BLE_COMM_XOR_END_IDX                BLE_COMM_IDX_IMU_END
 
@@ -70,15 +73,16 @@ extern "C" {
  * =========================== */
 
 /*
- * @brief 将一帧传感器数据按协议打包为 49 字节。
+ * @brief 将一帧传感器数据按协议打包为 51 字节。
  * @param frame      输入传感器融合帧。
  * @param out_buffer 输出缓存，长度至少为 BLE_COMM_SINGLE_FRAME_SIZE。
  *
  * @note
  * 1) ADC 区按 4 通道循环展开：ch0~ch3，每通道 early 后接 late。
  * 2) PPG 区按 Green/Red/IR 顺序写入 3 字节低位。
- * 3) MIMU 区按 Gx/Gy/Gz/Ax/Ay/Az 顺序写入 2 字节小端。
- * 4) 24-bit 提取采用显式位掩码 + 右移，不使用指针强转。
+ * 3) IMU 区按 Gx/Gy/Gz/Ax/Ay/Az 顺序写入 2 字节小端。
+ * 4) checksum 仍只 XOR [2..46]，frame_seq 不参与旧校验。
+ * 5) 24-bit 提取采用显式位掩码 + 右移，不使用指针强转。
  */
 void BLE_PackSingleFrame(SensorDataFrame_t *frame, uint8_t *out_buffer);
 

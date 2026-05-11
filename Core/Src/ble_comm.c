@@ -8,13 +8,16 @@
 extern UART_HandleTypeDef huart1;
 
 /*
- * 按需求固定：10 帧批量发送缓存（49B * 10 = 490B）。
+ * 按需求固定：10 帧批量发送缓存，单帧长度由协议宏决定。
  * 使用静态全局（文件作用域）避免栈开销，且确保 DMA 发送期间内存稳定。
  */
 static uint8_t ble_tx_buffer[BLE_COMM_BATCH_TX_SIZE] = {0};
 
 /* 当前批次已打包帧数。 */
 static uint8_t frame_cnt = 0U;
+
+/* 源端帧序号：每成功打包一帧后自增，uint16_t 自然回绕。 */
+static uint16_t s_frame_seq = 0U;
 
 /* 运行统计：用于诊断链路拥塞与发送异常。 */
 static uint32_t s_batch_drop_busy_count = 0U;
@@ -112,15 +115,21 @@ void BLE_PackSingleFrame(SensorDataFrame_t *frame, uint8_t *out_buffer)
     BLE_Write16LE_FromS16(frame->imu_data[ch], &out_buffer[offset]);
   }
 
-  /* [47] Checksum = XOR([2]..[46])，校验区不包含帧头。 */
+  /* [47] Checksum = XOR([2]..[46])，校验区不包含帧头和 frame_seq。 */
   for (idx = (uint8_t)BLE_COMM_XOR_START_IDX; idx <= (uint8_t)BLE_COMM_XOR_END_IDX; idx++)
   {
     checksum ^= out_buffer[idx];
   }
   out_buffer[BLE_COMM_IDX_CHECKSUM] = checksum;
 
-  /* [48] 单字节帧尾：0xCC。 */
+  /* [48..49] 源端帧序号，小端，不参与旧 XOR 校验。 */
+  out_buffer[BLE_COMM_IDX_FRAME_SEQ_L] = (uint8_t)(s_frame_seq & 0xFFU);
+  out_buffer[BLE_COMM_IDX_FRAME_SEQ_H] = (uint8_t)((s_frame_seq >> 8) & 0xFFU);
+
+  /* [50] 单字节帧尾：0xCC。 */
   out_buffer[BLE_COMM_IDX_TAIL0] = BLE_COMM_FRAME_TAIL_BYTE0;
+
+  s_frame_seq++;
 }
 
 bool BLE_Task_Process(SensorRingBuffer_t *rb)
