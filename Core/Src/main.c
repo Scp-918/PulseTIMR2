@@ -52,6 +52,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+/* PPG disable switches: keep BLE frame layout, but force PPG payload to 0. */
+#define APP_ENABLE_PPG_INIT                 (0U)
+#define APP_ENABLE_PPG_SAMPLE               (0U)
+
 /*
  * PPG 发光电流初始化（MAX30101，单位为寄存器码值，约 0.2mA/LSB）：
  * - Green 提升以增强绿光通道信号幅度
@@ -222,6 +226,7 @@ static void Bridge_ApplyState(uint8_t phase)
   }
 }
 
+#if (APP_ENABLE_PPG_INIT != 0U)
 /*
  * BLE 亮度档位(0..9)映射到 MAX30101 LED 电流寄存器码值(0..255)。
  * 采用线性映射：level=0 -> 0x00，level=9 -> 0xFF。
@@ -390,6 +395,7 @@ static uint8_t SensorParam_ApplyPPG(const uint8_t *params)
                                       sr_code,
                                       smp_ave_code);
 }
+#endif
 
 /*
  * 把协议参数应用到 LSM9DS1：
@@ -660,6 +666,7 @@ static uint8_t FrameHasIMUPayload(const SensorDataFrame_t *frame)
   return 0U;
 }
 
+#if (APP_ENABLE_PPG_SAMPLE != 0U)
 /* 若“待发送帧”PPG全0，则用前后帧PPG均值修复。 */
 static void PatchZeroPPGWithNeighborAverage(SensorDataFrame_t *out_frame,
                                             const SensorDataFrame_t *prev_frame,
@@ -684,6 +691,7 @@ static void PatchZeroPPGWithNeighborAverage(SensorDataFrame_t *out_frame,
   sum = prev_frame->ppg_data[2] + next_frame->ppg_data[2];
   out_frame->ppg_data[2] = (sum >> 1);
 }
+#endif
 
 /*
  * 从传感器环形缓冲区提取当前周期可用的最新片段帧：
@@ -794,10 +802,16 @@ static void PrepareAndCommitGroupFrame(void)
   if ((g_tx_prev_valid != 0U) && (g_sensor_send_hold_countdown == 0U))
   {
     g_ble_send_frame = g_tx_prev_frame;
+#if (APP_ENABLE_PPG_SAMPLE != 0U)
     if (g_tx_prev_prev_valid != 0U)
     {
       PatchZeroPPGWithNeighborAverage(&g_ble_send_frame, &g_tx_prev_prev_frame, &g_group_frame);
     }
+#else
+    g_ble_send_frame.ppg_data[0] = 0U;
+    g_ble_send_frame.ppg_data[1] = 0U;
+    g_ble_send_frame.ppg_data[2] = 0U;
+#endif
     g_ble_send_pending = 1U;
   }
 
@@ -918,9 +932,12 @@ int main(void)
   }
 
   /* 阶段4：绑定 PPG/MIMU 到同一 ringbuffer，统一交由主循环融合。 */
+#if (APP_ENABLE_PPG_SAMPLE != 0U)
   MAX30101_AttachRingBuffer(&g_sensor_rb);
+#endif
   LSM9DS1_AttachRingBuffer(&g_sensor_rb);
 
+#if (APP_ENABLE_PPG_INIT != 0U)
   /* 阶段5：初始化 PPG，配置为三光路轮切。 */
   if (MAX30101_Init() == 0U)
   {
@@ -937,6 +954,10 @@ int main(void)
   {
     Error_Handler();
   }
+#else
+  /* 保留 PPG 初始化原本带来的启动等待，避免 ADC 模拟链路过早进入采样。 */
+  HAL_Delay(100U);
+#endif
 
   /* 阶段6：初始化 MIMU。 */
   if (LSM9DS1_Init() != HAL_OK)
@@ -1165,14 +1186,20 @@ void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
     {
       g_sensor_cfg_apply_cycle_active = 1U;
       g_sensor_drop_pipeline_once = 1U;
+#if (APP_ENABLE_PPG_INIT != 0U)
       /* 先写 PPG 参数；失败仅置错误标记，不打断状态机。 */
       g_sensor_cfg_apply_error = (SensorParam_ApplyPPG(g_sensor_param_pending_buf) == 0U) ? 1U : 0U;
+#else
+      g_sensor_cfg_apply_error = 0U;
+#endif
       ADC_ResetCycleAccumulator();
       (void)memset(&g_group_frame, 0, sizeof(g_group_frame));
     }
     else if (g_sensor_cfg_apply_cycle_active == 0U)
     {
+#if (APP_ENABLE_PPG_SAMPLE != 0U)
       (void)MAX30101_TriggerPointerRead_IT();
+#endif
     }
   }
   else if (phase_before_rotate == 2U)
