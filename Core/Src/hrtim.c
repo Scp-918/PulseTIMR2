@@ -89,7 +89,7 @@ void MX_HRTIM1_Init(void)
   }
   /* Master CMP2: 由 2us(50) 调整到 5us(125)。 */
   // pCompareCfg.CompareValue = 50;
-  pCompareCfg.CompareValue = 125;
+  pCompareCfg.CompareValue = 200;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_MASTER, HRTIM_COMPAREUNIT_2, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -100,7 +100,7 @@ void MX_HRTIM1_Init(void)
    */
   // pCompareCfg.CompareValue = 24300;
   // pCompareCfg.CompareValue = 24750;
-  pCompareCfg.CompareValue = 25000;
+  pCompareCfg.CompareValue = 36500;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_MASTER, HRTIM_COMPAREUNIT_3, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
