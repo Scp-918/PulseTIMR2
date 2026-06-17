@@ -51,7 +51,11 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pTimeBaseCfg.Period = 26010;
+  /*
+   * Master window is kept inside the 2.5ms TIM1 sync period.
+   * With DIV4, one Master tick is 40ns; Period leaves 10 ticks after CMP4.
+   */
+  pTimeBaseCfg.Period = 37511;
   pTimeBaseCfg.RepetitionCounter = 0x00;
   pTimeBaseCfg.PrescalerRatio = HRTIM_PRESCALERRATIO_DIV4;
   pTimeBaseCfg.Mode = HRTIM_MODE_SINGLESHOT_RETRIGGERABLE;
@@ -101,7 +105,11 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = 26000;
+  /*
+   * PA8/TA1 high time: (37501 - CMP1=1) * 40ns = 1.500ms.
+   * TIM1 remains 400Hz, so each state is still 2.5ms.
+   */
+  pCompareCfg.CompareValue = 37501;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_MASTER, HRTIM_COMPAREUNIT_4, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
