@@ -55,7 +55,7 @@ void MX_HRTIM1_Init(void)
    * Master window is kept inside the 2.5ms TIM1 sync period.
    * With DIV4, one Master tick is 40ns; Period leaves 10 ticks after CMP4.
    */
-  pTimeBaseCfg.Period = 37511;
+  pTimeBaseCfg.Period = 30011;
   pTimeBaseCfg.RepetitionCounter = 0x00;
   pTimeBaseCfg.PrescalerRatio = HRTIM_PRESCALERRATIO_DIV4;
   pTimeBaseCfg.Mode = HRTIM_MODE_SINGLESHOT_RETRIGGERABLE;
@@ -95,21 +95,21 @@ void MX_HRTIM1_Init(void)
     Error_Handler();
   }
   /*
-   * Master CMP3 调整到约 1000us。
+   * Master CMP3 保持在 PA8 下降前约 40us，用作 late 窗口触发点。
    * 旧参数保留用于回滚对照。
    */
   // pCompareCfg.CompareValue = 24300;
   // pCompareCfg.CompareValue = 24750;
-  pCompareCfg.CompareValue = 36500;
+  pCompareCfg.CompareValue = 29000;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_MASTER, HRTIM_COMPAREUNIT_3, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
   }
   /*
-   * PA8/TA1 high time: (37501 - CMP1=1) * 40ns = 1.500ms.
+   * PA8/TA1 high time: (30001 - CMP1=1) * 40ns = 1.200ms.
    * TIM1 remains 400Hz, so each state is still 2.5ms.
    */
-  pCompareCfg.CompareValue = 37501;
+  pCompareCfg.CompareValue = 30001;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_MASTER, HRTIM_COMPAREUNIT_4, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
