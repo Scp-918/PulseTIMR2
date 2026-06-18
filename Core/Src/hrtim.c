@@ -206,7 +206,7 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 300;
   // pCompareCfg.CompareValue = 400;
   pCompareCfg.CompareValue = 700;
-  pCompareCfg.CompareValue = 1000;
+  // pCompareCfg.CompareValue = 1000;
 
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_4, &pCompareCfg) != HAL_OK)
   {
