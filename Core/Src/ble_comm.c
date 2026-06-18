@@ -61,6 +61,7 @@ void BLE_PackSingleFrame(SensorDataFrame_t *frame, uint8_t *out_buffer)
   uint8_t checksum = 0U;
   uint8_t ch;
   uint8_t idx;
+  uint8_t slot;
   uint16_t offset;
 
   if ((frame == NULL) || (out_buffer == NULL))
@@ -76,23 +77,24 @@ void BLE_PackSingleFrame(SensorDataFrame_t *frame, uint8_t *out_buffer)
   out_buffer[BLE_COMM_IDX_HEADER1] = BLE_COMM_FRAME_HEADER_BYTE1;
 
   /*
-   * [2..25] ADC 区：
+   * [2..73] ADC 区：
    * - 共 4 通道（adc_data[0..3]）
-   * - 每通道按 early(3B) + late(3B) 排列
-   * - 单通道占 6 字节，总计 24 字节
+   * - 每通道按 slot0..slot5 排列，每个 slot 3 字节
+   * - 单通道占 18 字节，总计 72 字节
    */
   for (ch = 0U; ch < BLE_COMM_ADC_CHANNEL_COUNT; ch++)
   {
-    offset = (uint16_t)BLE_COMM_IDX_ADC_START +
-             ((uint16_t)ch * (uint16_t)BLE_COMM_ADC_BYTES_PER_CHANNEL);
-
-    BLE_Write24LE_FromS32(frame->adc_data[ch].early_code, &out_buffer[offset]);
-    BLE_Write24LE_FromS32(frame->adc_data[ch].late_code,
-                          &out_buffer[offset + BLE_COMM_ADC_BYTES_PER_VALUE]);
+    for (slot = 0U; slot < BLE_COMM_ADC_VALUES_PER_CHANNEL; slot++)
+    {
+      offset = (uint16_t)BLE_COMM_IDX_ADC_START +
+               ((uint16_t)ch * (uint16_t)BLE_COMM_ADC_BYTES_PER_CHANNEL) +
+               ((uint16_t)slot * (uint16_t)BLE_COMM_ADC_BYTES_PER_VALUE);
+      BLE_Write24LE_FromS32(frame->adc_data[ch].slot_code[slot], &out_buffer[offset]);
+    }
   }
 
   /*
-   * [26..34] PPG 区：
+   * [74..82] PPG 区：
    * - 3 通道（Green/Red/IR）
    * - 每通道低 24 位小端写入 3 字节
    */
@@ -104,7 +106,7 @@ void BLE_PackSingleFrame(SensorDataFrame_t *frame, uint8_t *out_buffer)
   }
 
   /*
-   * [35..46] MIMU 区：
+   * [83..94] MIMU 区：
    * - 6 轴（Gx/Gy/Gz/Ax/Ay/Az）
    * - 每轴 int16 小端写入 2 字节
    */
@@ -115,18 +117,18 @@ void BLE_PackSingleFrame(SensorDataFrame_t *frame, uint8_t *out_buffer)
     BLE_Write16LE_FromS16(frame->imu_data[ch], &out_buffer[offset]);
   }
 
-  /* [47] Checksum = XOR([2]..[46])，校验区不包含帧头和 frame_seq。 */
+  /* [95] Checksum = XOR([2]..[94])，校验区不包含帧头和 frame_seq。 */
   for (idx = (uint8_t)BLE_COMM_XOR_START_IDX; idx <= (uint8_t)BLE_COMM_XOR_END_IDX; idx++)
   {
     checksum ^= out_buffer[idx];
   }
   out_buffer[BLE_COMM_IDX_CHECKSUM] = checksum;
 
-  /* [48..49] 源端帧序号，小端，不参与旧 XOR 校验。 */
+  /* [96..97] 源端帧序号，小端，不参与 XOR 校验。 */
   out_buffer[BLE_COMM_IDX_FRAME_SEQ_L] = (uint8_t)(s_frame_seq & 0xFFU);
   out_buffer[BLE_COMM_IDX_FRAME_SEQ_H] = (uint8_t)((s_frame_seq >> 8) & 0xFFU);
 
-  /* [50] 单字节帧尾：0xCC。 */
+  /* [98] 单字节帧尾：0xCC。 */
   out_buffer[BLE_COMM_IDX_TAIL0] = BLE_COMM_FRAME_TAIL_BYTE0;
 
   s_frame_seq++;

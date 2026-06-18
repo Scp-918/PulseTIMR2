@@ -70,7 +70,7 @@ graph TD
     C2 -- Yes --> C2_1[PrepareAndCommitGroupFrame: 环形缓冲出队与帧融合]
     C2 -- No --> C3
     C2_1 --> C3{g_ble_send_pending == 1?}
-    C3 -- Yes --> C3_1[BLE_PackSingleFrame: 组包 51 Bytes]
+    C3 -- Yes --> C3_1[BLE_PackSingleFrame: 组包 99 Bytes]
     C3_1 --> C3_2[BLE_Transmit_Data_DMA: 发送至上位机]
     C3 -- No --> Loop_Start
     C3_2 --> Loop_Start
@@ -158,13 +158,12 @@ sequenceDiagram
 ### 4.1 核心数据结构
 
 **1. 传感器数据融合帧 (`SensorDataFrame_t`)**
-承载大周期一帧的完整快照，包含四个相位的早期/晚期 ADC 均值及辅助传感器数据。
+承载大周期一帧的完整快照，包含四个相位的 6 个 ADC 原始 slot 及辅助传感器数据。
 ```c
 typedef struct {
-    /* 4 个相位的 ADC early 与 late 采样均值 */
+    /* 4 个相位的 ADC raw slot；slot0..2 为 early，slot3..5 为 late */
     struct {
-        int32_t early_code;
-        int32_t late_code;
+        int32_t slot_code[6];
     } adc_data[4];
 
     /* PPG 三路光数据：Green, Red, IR */
@@ -190,7 +189,7 @@ typedef struct {
 
 | 文件 | 函数名 | 职责 |
 | :--- | :--- | :--- |
-| `main.c` | `ADC_FinalizeStateAndRotateBridge()` | HRTIM 节拍关键点：结算本相位 3 个早窗/晚窗的 ADC 累加平均值，更新给 `g_group_frame`，并切至下一 TMUX 桥臂状态。 |
+| `main.c` | `ADC_FinalizeStateAndRotateBridge()` | HRTIM 节拍关键点：回收本相位最后一个 ADC pending slot，并切至下一 TMUX 桥臂状态。 |
 | `main.c` | `PrepareAndCommitGroupFrame()` | 出队 RingBuffer 中的最新 PPG/IMU，执行一帧延迟机制及**相邻帧补零算法**（`PatchZeroPPGWithNeighborAverage`），确保蓝牙吐出的时序平滑不断层。 |
 | `main.c` | `SensorParam_ParseFrame()` | 对上位机 13 字节参数帧执行帧头帧尾检测、字段范围校验与模式一致性校验（非 Multi 模式强制 `sub-mode=0x01`）。 |
 | `main.c` | `SensorParam_ApplyPPG()/SensorParam_ApplyIMU()` | 将协议字段映射为 MAX30101/LSM9DS1 寄存器配置，按固定相位原子生效。 |
@@ -202,17 +201,17 @@ typedef struct {
 
 ## 5. 通信协议帧结构
 
-上位机通信使用 `USART1` DMA 全速透传，波特率 `460800`。单帧协议定长 **51 字节**，结构紧凑且含校验与源端帧序号。
+上位机通信使用 `USART1` DMA 全速透传，波特率 `460800`。debugADC 单帧协议定长 **99 字节**，结构紧凑且含校验与源端帧序号。
 
 | 偏移 (Byte) | 长度 | 字段名称 | 序列化说明 (全部为小端序) |
 | :--- | :--- | :--- | :--- |
 | `0-1` | 2 | 帧头 | 固定标识 `0xAA 0xBB` |
-| `2-25` | 24 | ADC 区 | 4通道 × (Early 3B + Late 3B)。18位有符号数值使用 24 位小端传输 |
-| `26-34` | 9 | PPG 区 | 3通道 (Green, Red, IR) × 3B。原始无符号数值，右移 1 位映射 |
-| `35-46` | 12 | IMU 区 | 6通道 (Gx, Gy, Gz, Ax, Ay, Az) × 2B (`int16_t`) |
-| `47` | 1 | 校验和 | 从 Byte 2 开始至 Byte 46 的逐字节**异或和 (XOR)**，不包含 `frame_seq` |
-| `48-49` | 2 | 源端帧序号 | `frame_seq`，`uint16_t` 小端，每发送一帧自增并自然回绕 |
-| `50` | 1 | 帧尾 | 固定标识 `0xCC` |
+| `2-73` | 72 | ADC 区 | 4通道 × 6 slot × 3B。slot0..2 为 early，slot3..5 为 late；signed int24 小端传输 |
+| `74-82` | 9 | PPG 区 | 3通道 (Green, Red, IR) × 3B。原始无符号数值，右移 1 位映射 |
+| `83-94` | 12 | IMU 区 | 6通道 (Gx, Gy, Gz, Ax, Ay, Az) × 2B (`int16_t`) |
+| `95` | 1 | 校验和 | 从 Byte 2 开始至 Byte 94 的逐字节**异或和 (XOR)**，不包含 `frame_seq` |
+| `96-97` | 2 | 源端帧序号 | `frame_seq`，`uint16_t` 小端，每发送一帧自增并自然回绕 |
+| `98` | 1 | 帧尾 | 固定标识 `0xCC` |
 
 ### 5.1 新增：上位机参数配置帧（13 Bytes）
 

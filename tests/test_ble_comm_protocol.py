@@ -20,17 +20,18 @@ class BleCommProtocolTest(unittest.TestCase):
         self.assertEqual(macro_body(name), expected, name)
 
     def test_single_frame_layout_macros(self) -> None:
-        self.assertMacro("BLE_COMM_SINGLE_FRAME_SIZE", "51U")
+        self.assertMacro("BLE_COMM_SINGLE_FRAME_SIZE", "99U")
         self.assertMacro("BLE_COMM_IDX_ADC_START", "2U")
-        self.assertMacro("BLE_COMM_IDX_ADC_END", "25U")
-        self.assertMacro("BLE_COMM_IDX_PPG_START", "26U")
-        self.assertMacro("BLE_COMM_IDX_PPG_END", "34U")
-        self.assertMacro("BLE_COMM_IDX_IMU_START", "35U")
-        self.assertMacro("BLE_COMM_IDX_IMU_END", "46U")
-        self.assertMacro("BLE_COMM_IDX_CHECKSUM", "47U")
-        self.assertMacro("BLE_COMM_IDX_FRAME_SEQ_L", "48U")
-        self.assertMacro("BLE_COMM_IDX_FRAME_SEQ_H", "49U")
-        self.assertMacro("BLE_COMM_IDX_TAIL0", "50U")
+        self.assertMacro("BLE_COMM_ADC_VALUES_PER_CHANNEL", "6U")
+        self.assertMacro("BLE_COMM_IDX_ADC_END", "73U")
+        self.assertMacro("BLE_COMM_IDX_PPG_START", "74U")
+        self.assertMacro("BLE_COMM_IDX_PPG_END", "82U")
+        self.assertMacro("BLE_COMM_IDX_IMU_START", "83U")
+        self.assertMacro("BLE_COMM_IDX_IMU_END", "94U")
+        self.assertMacro("BLE_COMM_IDX_CHECKSUM", "95U")
+        self.assertMacro("BLE_COMM_IDX_FRAME_SEQ_L", "96U")
+        self.assertMacro("BLE_COMM_IDX_FRAME_SEQ_H", "97U")
+        self.assertMacro("BLE_COMM_IDX_TAIL0", "98U")
 
     def test_batch_size_uses_frame_size_macro(self) -> None:
         body = macro_body("BLE_COMM_BATCH_TX_SIZE")
@@ -41,6 +42,11 @@ class BleCommProtocolTest(unittest.TestCase):
     def test_checksum_keeps_legacy_payload_only(self) -> None:
         self.assertMacro("BLE_COMM_XOR_START_IDX", "BLE_COMM_IDX_ADC_START")
         self.assertMacro("BLE_COMM_XOR_END_IDX", "BLE_COMM_IDX_IMU_END")
+
+    def test_adc_packet_uses_six_raw_slots_per_channel(self) -> None:
+        self.assertIn("slot_code[slot]", SOURCE)
+        self.assertNotIn("early_code", SOURCE)
+        self.assertNotIn("late_code", SOURCE)
 
     def test_frame_seq_is_static_uint16_and_written_little_endian(self) -> None:
         self.assertRegex(SOURCE, r"static\s+uint16_t\s+s_frame_seq\s*=\s*0U\s*;")

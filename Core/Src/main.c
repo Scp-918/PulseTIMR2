@@ -105,12 +105,6 @@ static volatile uint8_t g_adc_dma_pending_slot = 0U;
 /* 本相位周期内下一个可用采样槽位。 */
 static volatile uint8_t g_adc_pulse_start_index = 0U;
 
-/* 早窗/晚窗累加器：每相位内分别统计 3 个采样点并取平均。 */
-static int64_t g_adc_early_sum = 0;
-static int64_t g_adc_late_sum = 0;
-static uint8_t g_adc_early_count = 0U;
-static uint8_t g_adc_late_count = 0U;
-
 /* AD4007 原始 DMA 缓冲：6 槽 * 每槽 1 帧原始字节。 */
 static uint8_t g_adc_dma_raw[6][AD4007_FRAME_BYTES] = {{0}};
 /* 当前正在构建的组帧（4 相位内持续填充）。 */
@@ -555,22 +549,19 @@ static void Sensor_DrainRingBuffer(SensorRingBuffer_t *rb)
   }
 }
 
-/* 清空“单相位”内 ADC 统计窗口，为下一相位 3+3 脉冲采样做准备。 */
+/* 清空“单相位”内 ADC 采样窗口，为下一相位 3+3 脉冲采样做准备。 */
 static void ADC_ResetCycleAccumulator(void)
 {
-  g_adc_early_sum = 0;
-  g_adc_late_sum = 0;
-  g_adc_early_count = 0U;
-  g_adc_late_count = 0U;
   g_adc_pulse_start_index = 0U;
   g_adc_dma_pending = 0U;
   g_adc_dma_pending_slot = 0U;
 }
 
-/* 在 SPI3 空闲时解析待处理 DMA 原始数据，并归入 early/late 累加器。 */
+/* 在 SPI3 空闲时解析待处理 DMA 原始数据，并写入当前相位 raw slot。 */
 static void ADC_TryHarvestPendingSample(void)
 {
   int32_t code = 0;
+  uint8_t state_index;
   uint8_t slot;
 
   if (g_adc_dma_pending == 0U)
@@ -584,21 +575,16 @@ static void ADC_TryHarvestPendingSample(void)
   }
 
   slot = g_adc_dma_pending_slot;
+  state_index = (uint8_t)(g_tim_group_phase - 1U);
   if (AD4007_ProcessRawData(g_adc_dma_raw[slot], 1U, &code) != HAL_OK)
   {
     g_adc_dma_pending = 0U;
     return;
   }
 
-  if (slot < 3U)
+  if ((state_index < 4U) && (slot < 6U))
   {
-    g_adc_early_sum += (int64_t)code;
-    g_adc_early_count++;
-  }
-  else
-  {
-    g_adc_late_sum += (int64_t)code;
-    g_adc_late_count++;
+    g_group_frame.adc_data[state_index].slot_code[slot] = code;
   }
 
   g_adc_dma_pending = 0U;
@@ -606,34 +592,18 @@ static void ADC_TryHarvestPendingSample(void)
 
 /*
  * 在每个相位结束时：
- * 1) 结算该相位 early/late 平均值写入组帧；
+ * 1) 回收该相位最后一个 pending raw slot；
  * 2) 轮转桥臂到下一个相位；
  * 3) 复位相位内采样窗口。
  */
 static void ADC_FinalizeStateAndRotateBridge(void)
 {
-  uint8_t state_index = (uint8_t)(g_tim_group_phase - 1U);
-  int32_t early_avg = 0;
-  int32_t late_avg = 0;
-
   ADC_TryHarvestPendingSample();
   if (g_adc_dma_pending != 0U)
   {
     (void)HAL_SPI_Abort(&hspi3);
     g_adc_dma_pending = 0U;
   }
-
-  if (g_adc_early_count != 0U)
-  {
-    early_avg = (int32_t)(g_adc_early_sum / (int64_t)g_adc_early_count);
-  }
-  if (g_adc_late_count != 0U)
-  {
-    late_avg = (int32_t)(g_adc_late_sum / (int64_t)g_adc_late_count);
-  }
-
-  g_group_frame.adc_data[state_index].early_code = early_avg;
-  g_group_frame.adc_data[state_index].late_code = late_avg;
 
   g_tim_group_phase++;
   if (g_tim_group_phase > 4U)
