@@ -100,7 +100,7 @@ void MX_HRTIM1_Init(void)
    */
   // pCompareCfg.CompareValue = 24300;
   // pCompareCfg.CompareValue = 24750;
-  pCompareCfg.CompareValue = 29000;
+  pCompareCfg.CompareValue = 28000;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_MASTER, HRTIM_COMPAREUNIT_3, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -115,17 +115,17 @@ void MX_HRTIM1_Init(void)
     Error_Handler();
   }
   /*
-   * Timer A 切换到 3.5us 间隔版本：
+   * Timer A 使用 30us 下降沿间隔，CNV 高电平保持 1us：
    * - 旧 2.5us/4us/3us/5us/8us/1.5us/2us/15us/10us 参数保留用于回滚对照。
    */
   // pTimeBaseCfg.Period = 550;
   // pTimeBaseCfg.Period = 850;
   // pTimeBaseCfg.Period = 650;
-  // pTimeBaseCfg.Period = 1050;
+  pTimeBaseCfg.Period = 6100;
   // pTimeBaseCfg.Period = 1650;
   // pTimeBaseCfg.Period = 350;
   // pTimeBaseCfg.Period = 450;
-  pTimeBaseCfg.Period = 750;
+  // pTimeBaseCfg.Period = 750;
   // pTimeBaseCfg.Period = 3150;
   // pTimeBaseCfg.Period = 2050;
   pTimeBaseCfg.PrescalerRatio = HRTIM_PRESCALERRATIO_DIV1;
@@ -162,7 +162,7 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pCompareCfg.CompareValue = 50;
+  pCompareCfg.CompareValue = 100;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_1, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -170,11 +170,11 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 250;
   // pCompareCfg.CompareValue = 400;
   // pCompareCfg.CompareValue = 300;
-  // pCompareCfg.CompareValue = 500;
+  pCompareCfg.CompareValue = 3000;
   // pCompareCfg.CompareValue = 800;
   // pCompareCfg.CompareValue = 150;
   // pCompareCfg.CompareValue = 200;
-  pCompareCfg.CompareValue = 350;
+  // pCompareCfg.CompareValue = 350;
   // pCompareCfg.CompareValue = 1550;
   // pCompareCfg.CompareValue = 1000;
   pCompareCfg.AutoDelayedMode = HRTIM_AUTODELAYEDMODE_REGULAR;
@@ -187,11 +187,11 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 300;
   // pCompareCfg.CompareValue = 450;
   // pCompareCfg.CompareValue = 350;
-  // pCompareCfg.CompareValue = 550;
+  pCompareCfg.CompareValue = 3100;
   // pCompareCfg.CompareValue = 850;
   // pCompareCfg.CompareValue = 200;
   // pCompareCfg.CompareValue = 250;
-  pCompareCfg.CompareValue = 400;
+  // pCompareCfg.CompareValue = 400;
   // pCompareCfg.CompareValue = 1600;
   // pCompareCfg.CompareValue = 1050;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_3, &pCompareCfg) != HAL_OK)
@@ -201,11 +201,11 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 500;
   // pCompareCfg.CompareValue = 800;
   // pCompareCfg.CompareValue = 600;
-  // pCompareCfg.CompareValue = 1000;
+  pCompareCfg.CompareValue = 6000;
   // pCompareCfg.CompareValue = 1600;
   // pCompareCfg.CompareValue = 300;
   // pCompareCfg.CompareValue = 400;
-  pCompareCfg.CompareValue = 700;
+  // pCompareCfg.CompareValue = 700;
   // pCompareCfg.CompareValue = 1000;
 
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_4, &pCompareCfg) != HAL_OK)
