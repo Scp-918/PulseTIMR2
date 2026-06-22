@@ -973,9 +973,6 @@ int main(void)
                               HRTIM_MASTER_IT_SYNC);
   __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
                              HRTIM_TIMERINDEX_TIMER_A,
-                             HRTIM_TIM_IT_CMP1 |
-                             HRTIM_TIM_IT_CMP3 |
-                             HRTIM_TIM_IT_REP |
                              HRTIM_TIM_IT_RST2);
 
   NVIC_ClearPendingIRQ(HRTIM1_Master_IRQn);
@@ -984,10 +981,7 @@ int main(void)
   __HAL_HRTIM_MASTER_ENABLE_IT(&hhrtim1, HRTIM_MASTER_IT_MCMP4);
   __HAL_HRTIM_TIMER_ENABLE_IT(&hhrtim1,
                               HRTIM_TIMERINDEX_TIMER_A,
-                              HRTIM_TIM_IT_CMP1 |
-                             HRTIM_TIM_IT_CMP3 |
-                             HRTIM_TIM_IT_REP |
-                             HRTIM_TIM_IT_RST2);
+                              HRTIM_TIM_IT_RST2);
 
   HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
   HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
@@ -1235,29 +1229,10 @@ static void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
   }
 }
 
-void HAL_HRTIM_Compare1EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
-{
-  /* 当前生效方案：在 CMP1 事件触发 ADC DMA。 */
-  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
-}
-
-void HAL_HRTIM_Compare3EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
-{
-  /* 当前生效方案：在 CMP3 事件触发 ADC DMA。 */
-  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
-}
-
-void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
-{
-  /* 当前生效方案：在 REP 事件触发 ADC DMA。 */
-  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
-}
-
 void HAL_HRTIM_Output2ResetCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  (void)hhrtim;
-  (void)TimerIdx;
-  /* 当前策略不使用 RST2 触发采样，仅保留回调占位。 */
+  /* TA2 reset 与 CNV 下降沿严格对齐；每个 RST2 事件启动一次 ADC DMA。 */
+  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 /* USER CODE END 4 */
