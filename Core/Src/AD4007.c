@@ -79,7 +79,7 @@ static void AD4007_GenerateCnvPulse_SW(void)
  * - 右移 6 位后取低 18 位
  * - 若 bit17=1，则把高 14 位补 1，得到 int32 负数
  */
-static int32_t AD4007_DecodeOneSample(const uint8_t frame[AD4007_FRAME_BYTES])
+__STATIC_FORCEINLINE int32_t AD4007_DecodeOneSample(const uint8_t frame[AD4007_FRAME_BYTES])
 {
     uint32_t raw24 = ((uint32_t)frame[0] << 16)
                    | ((uint32_t)frame[1] << 8)
@@ -115,7 +115,7 @@ static uint32_t AD4007_BlockingTimeoutCycles(void)
     return cycles_per_us * AD4007_BLOCKING_TIMEOUT_US;
 }
 
-static bool AD4007_BlockingDeadlineExpired(uint32_t start_cycles, uint32_t timeout_cycles)
+__STATIC_FORCEINLINE bool AD4007_BlockingDeadlineExpired(uint32_t start_cycles, uint32_t timeout_cycles)
 {
     return ((uint32_t)(DWT->CYCCNT - start_cycles) >= timeout_cycles);
 }
@@ -372,7 +372,6 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
 {
     uint8_t rx_frame[AD4007_FRAME_BYTES] = {0};
     uint32_t start_cycles;
-    uint8_t i;
 
     if (out_code == NULL)
     {
@@ -380,12 +379,6 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
     }
 
     *out_code = 0;
-
-    if (hspi3.State != HAL_SPI_STATE_READY)
-    {
-        g_ad4007_runtime_stats.read_busy_count++;
-        return HAL_BUSY;
-    }
 
     start_cycles = DWT->CYCCNT;
 
@@ -399,32 +392,77 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
         return HAL_TIMEOUT;
     }
 
-    for (i = 0u; i < AD4007_FRAME_BYTES; i++)
+    while (LL_SPI_IsActiveFlag_TXE(SPI3) == 0u)
     {
-        while (LL_SPI_IsActiveFlag_TXE(SPI3) == 0u)
+        if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
         {
-            if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
-            {
-                g_ad4007_runtime_stats.txe_timeout_count++;
-                AD4007_RecoverBlockingTransfer();
-                return HAL_TIMEOUT;
-            }
+            g_ad4007_runtime_stats.txe_timeout_count++;
+            AD4007_RecoverBlockingTransfer();
+            return HAL_TIMEOUT;
         }
-
-        LL_SPI_TransmitData8(SPI3, 0xFFu);
-
-        while (LL_SPI_IsActiveFlag_RXNE(SPI3) == 0u)
-        {
-            if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
-            {
-                g_ad4007_runtime_stats.rxne_timeout_count++;
-                AD4007_RecoverBlockingTransfer();
-                return HAL_TIMEOUT;
-            }
-        }
-
-        rx_frame[i] = LL_SPI_ReceiveData8(SPI3);
     }
+
+    LL_SPI_TransmitData8(SPI3, 0xFFu);
+
+    while (LL_SPI_IsActiveFlag_RXNE(SPI3) == 0u)
+    {
+        if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
+        {
+            g_ad4007_runtime_stats.rxne_timeout_count++;
+            AD4007_RecoverBlockingTransfer();
+            return HAL_TIMEOUT;
+        }
+    }
+
+    rx_frame[0] = LL_SPI_ReceiveData8(SPI3);
+
+    while (LL_SPI_IsActiveFlag_TXE(SPI3) == 0u)
+    {
+        if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
+        {
+            g_ad4007_runtime_stats.txe_timeout_count++;
+            AD4007_RecoverBlockingTransfer();
+            return HAL_TIMEOUT;
+        }
+    }
+
+    LL_SPI_TransmitData8(SPI3, 0xFFu);
+
+    while (LL_SPI_IsActiveFlag_RXNE(SPI3) == 0u)
+    {
+        if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
+        {
+            g_ad4007_runtime_stats.rxne_timeout_count++;
+            AD4007_RecoverBlockingTransfer();
+            return HAL_TIMEOUT;
+        }
+    }
+
+    rx_frame[1] = LL_SPI_ReceiveData8(SPI3);
+
+    while (LL_SPI_IsActiveFlag_TXE(SPI3) == 0u)
+    {
+        if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
+        {
+            g_ad4007_runtime_stats.txe_timeout_count++;
+            AD4007_RecoverBlockingTransfer();
+            return HAL_TIMEOUT;
+        }
+    }
+
+    LL_SPI_TransmitData8(SPI3, 0xFFu);
+
+    while (LL_SPI_IsActiveFlag_RXNE(SPI3) == 0u)
+    {
+        if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
+        {
+            g_ad4007_runtime_stats.rxne_timeout_count++;
+            AD4007_RecoverBlockingTransfer();
+            return HAL_TIMEOUT;
+        }
+    }
+
+    rx_frame[2] = LL_SPI_ReceiveData8(SPI3);
 
     while (LL_SPI_IsActiveFlag_TXE(SPI3) == 0u)
     {
