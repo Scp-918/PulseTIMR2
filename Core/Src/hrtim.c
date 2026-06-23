@@ -95,12 +95,12 @@ void MX_HRTIM1_Init(void)
     Error_Handler();
   }
   /*
-   * Master CMP3 保持在 PA8 下降前约 40us，用作 late 窗口触发点。
+   * Master CMP3 前移 40us，给 103us 的 late CNV 脉冲组保留结束裕量。
    * 旧参数保留用于回滚对照。
    */
   // pCompareCfg.CompareValue = 24300;
   // pCompareCfg.CompareValue = 24750;
-  pCompareCfg.CompareValue = 28000;
+  pCompareCfg.CompareValue = 27000;
   if (HAL_HRTIM_WaveformCompareConfig(&hhrtim1, HRTIM_TIMERINDEX_MASTER, HRTIM_COMPAREUNIT_3, &pCompareCfg) != HAL_OK)
   {
     Error_Handler();
@@ -114,11 +114,11 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  /* Timer A：CNV 高电平 1us、低电平 30us，三个脉冲总长 63us。 */
+  /* Timer A：CNV 高电平 1us、低电平 50us，三个脉冲总长 103us。 */
   // pTimeBaseCfg.Period = 550;
   // pTimeBaseCfg.Period = 850;
   // pTimeBaseCfg.Period = 650;
-  pTimeBaseCfg.Period = 6300;
+  pTimeBaseCfg.Period = 10300;
   // pTimeBaseCfg.Period = 1650;
   // pTimeBaseCfg.Period = 350;
   // pTimeBaseCfg.Period = 450;
@@ -167,7 +167,7 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 250;
   // pCompareCfg.CompareValue = 400;
   // pCompareCfg.CompareValue = 300;
-  pCompareCfg.CompareValue = 3100;
+  pCompareCfg.CompareValue = 5100;
   // pCompareCfg.CompareValue = 800;
   // pCompareCfg.CompareValue = 150;
   // pCompareCfg.CompareValue = 200;
@@ -184,7 +184,7 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 300;
   // pCompareCfg.CompareValue = 450;
   // pCompareCfg.CompareValue = 350;
-  pCompareCfg.CompareValue = 3200;
+  pCompareCfg.CompareValue = 5200;
   // pCompareCfg.CompareValue = 850;
   // pCompareCfg.CompareValue = 200;
   // pCompareCfg.CompareValue = 250;
@@ -198,7 +198,7 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 500;
   // pCompareCfg.CompareValue = 800;
   // pCompareCfg.CompareValue = 600;
-  pCompareCfg.CompareValue = 6200;
+  pCompareCfg.CompareValue = 10200;
   // pCompareCfg.CompareValue = 1600;
   // pCompareCfg.CompareValue = 300;
   // pCompareCfg.CompareValue = 400;

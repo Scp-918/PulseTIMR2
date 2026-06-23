@@ -86,8 +86,7 @@ void MX_SPI3_Init(void)
   hspi3.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi3.Init.NSS = SPI_NSS_SOFT;
   /*
-   * 提升 SPI3 时钟，降低每次 3-byte DMA 读取占用时间。
-   * 旧配置保留用于回滚对照。
+   * SPI3 使用 APB1 100MHz / 4 = 25MHz。
    */
   // hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_128;
   // hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
@@ -198,7 +197,7 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* spiHandle)
     GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_11|GPIO_PIN_12;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF6_SPI3;
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
