@@ -5,6 +5,7 @@
 extern SPI_HandleTypeDef hspi3;
 
 static AD4007_RuntimeStats_t g_ad4007_runtime_stats = {0};
+static uint32_t g_ad4007_blocking_timeout_cycles = 0u;
 
 /* 统一使用 0xFF 作为读取时的发送填充值，确保 MOSI 在最后一位保持为高。 */
 static const uint8_t AD4007_SPI_TX_DUMMY[AD4007_FRAME_BYTES] = {0xFFu, 0xFFu, 0xFFu};
@@ -216,8 +217,6 @@ HAL_StatusTypeDef AD4007_Init(void)
     HAL_StatusTypeDef ret;
     uint8_t discard_rx[AD4007_FRAME_BYTES] = {0};
 
-    AD4007_EnableCycleCounter();
-
     /* 必须是 SPI Mode 0：CPOL=0, CPHA=0。若不满足则重配 SPI3。 */
     if ((hspi3.Init.CLKPolarity != SPI_POLARITY_LOW) || (hspi3.Init.CLKPhase != SPI_PHASE_1EDGE))
     {
@@ -349,9 +348,12 @@ HAL_StatusTypeDef AD4007_test_DMA_Rx(int32_t *out_code, uint32_t timeout_ms)
 }
 #endif
 
-/* HRTIM启动前只确认SPI3处于启用状态，不处理FIFO和错误标志。 */
+/* HRTIM启动前一次性准备DWT硬超时并确认SPI3启用，不处理FIFO和错误标志。 */
 HAL_StatusTypeDef AD4007_PrepareFastPath(void)
 {
+    AD4007_EnableCycleCounter();
+    g_ad4007_blocking_timeout_cycles = AD4007_BlockingTimeoutCycles();
+
     if (LL_SPI_IsEnabled(SPI3) == 0u)
     {
         LL_SPI_Enable(SPI3);
@@ -370,7 +372,6 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
 {
     uint8_t rx_frame[AD4007_FRAME_BYTES] = {0};
     uint32_t start_cycles;
-    uint32_t timeout_cycles;
     uint8_t i;
 
     if (out_code == NULL)
@@ -386,14 +387,12 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
         return HAL_BUSY;
     }
 
-    AD4007_EnableCycleCounter();
     start_cycles = DWT->CYCCNT;
-    timeout_cycles = AD4007_BlockingTimeoutCycles();
 
     LL_SPI_SetRxFIFOThreshold(SPI3, LL_SPI_RX_FIFO_TH_QUARTER);
     AD4007_ClearSpiReceiveAndErrors();
 
-    if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
+    if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
     {
         g_ad4007_runtime_stats.txe_timeout_count++;
         AD4007_RecoverBlockingTransfer();
@@ -404,7 +403,7 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
     {
         while (LL_SPI_IsActiveFlag_TXE(SPI3) == 0u)
         {
-            if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
+            if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
             {
                 g_ad4007_runtime_stats.txe_timeout_count++;
                 AD4007_RecoverBlockingTransfer();
@@ -416,7 +415,7 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
 
         while (LL_SPI_IsActiveFlag_RXNE(SPI3) == 0u)
         {
-            if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
+            if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
             {
                 g_ad4007_runtime_stats.rxne_timeout_count++;
                 AD4007_RecoverBlockingTransfer();
@@ -429,7 +428,7 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
 
     while (LL_SPI_IsActiveFlag_TXE(SPI3) == 0u)
     {
-        if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
+        if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
         {
             g_ad4007_runtime_stats.txe_timeout_count++;
             AD4007_RecoverBlockingTransfer();
@@ -439,7 +438,7 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
 
     while (LL_SPI_IsActiveFlag_BSY(SPI3) != 0u)
     {
-        if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
+        if (AD4007_BlockingDeadlineExpired(start_cycles, g_ad4007_blocking_timeout_cycles))
         {
             g_ad4007_runtime_stats.bsy_timeout_count++;
             AD4007_RecoverBlockingTransfer();

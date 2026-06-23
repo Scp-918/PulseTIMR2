@@ -71,9 +71,9 @@ typedef struct
 HAL_StatusTypeDef AD4007_Init(void);
 
 /*
- * @brief 在HRTIM采样启动前确认SPI3已启用。
+ * @brief 在HRTIM采样启动前准备DWT超时基准并确认SPI3已启用。
  *
- * @note 本阶段只处理SPI enable状态，不设置FIFO阈值，也不清理FIFO或错误标志。
+ * @note 一次性启用DWT并缓存硬超时周期；不设置FIFO阈值，也不清理FIFO或错误标志。
  */
 HAL_StatusTypeDef AD4007_PrepareFastPath(void);
 
