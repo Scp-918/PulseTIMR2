@@ -76,11 +76,11 @@ class HrtimAdcTimingTest(unittest.TestCase):
             r"^HRTIM1\.InterruptRequests\d+-Output_TA1TA2=HRTIM_TIM_IT_RST2$",
         )
 
-    def test_cnv_is_one_point_five_microseconds_high_and_fifteen_microseconds_low(self) -> None:
+    def test_cnv_is_one_point_five_microseconds_high_and_fourteen_microseconds_low(self) -> None:
         values = generated_timer_a_values()
         self.assertEqual(
             values,
-            {"period": 3450, "cmp1": 150, "cmp2": 1650, "cmp3": 1800, "cmp4": 3300},
+            {"period": 3250, "cmp1": 150, "cmp2": 1550, "cmp3": 1700, "cmp4": 3100},
         )
 
         set_ticks = [0, values["cmp2"], values["cmp4"]]
@@ -88,7 +88,7 @@ class HrtimAdcTimingTest(unittest.TestCase):
         self.assertEqual([reset - set_ for set_, reset in zip(set_ticks, reset_ticks)], [150] * 3)
         self.assertEqual(
             [set_ticks[i + 1] - reset_ticks[i] for i in range(2)],
-            [1500] * 2,
+            [1400] * 2,
         )
 
     def test_late_burst_finishes_before_master_compare4(self) -> None:

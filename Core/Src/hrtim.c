@@ -95,7 +95,7 @@ void MX_HRTIM1_Init(void)
     Error_Handler();
   }
   /*
-   * Master CMP3 后移 160us，给 34.5us 的 late CNV 脉冲组保留结束裕量。
+   * Master CMP3 后移 160us，给 32.5us 的 late CNV 脉冲组保留结束裕量。
    * 旧参数保留用于回滚对照。
    */
   // pCompareCfg.CompareValue = 24300;
@@ -114,11 +114,11 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  /* Timer A：CNV 高电平 1.5us、低电平 15us，三个脉冲总长 34.5us。 */
+  /* Timer A：CNV 高电平 1.5us、低电平 14us，三个脉冲总长 32.5us。 */
   // pTimeBaseCfg.Period = 550;
   // pTimeBaseCfg.Period = 850;
   // pTimeBaseCfg.Period = 650;
-  pTimeBaseCfg.Period = 3450;
+  pTimeBaseCfg.Period = 3250;
   // pTimeBaseCfg.Period = 1650;
   // pTimeBaseCfg.Period = 350;
   // pTimeBaseCfg.Period = 450;
@@ -167,7 +167,7 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 250;
   // pCompareCfg.CompareValue = 400;
   // pCompareCfg.CompareValue = 300;
-  pCompareCfg.CompareValue = 1650;
+  pCompareCfg.CompareValue = 1550;
   // pCompareCfg.CompareValue = 800;
   // pCompareCfg.CompareValue = 150;
   // pCompareCfg.CompareValue = 200;
@@ -184,7 +184,7 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 300;
   // pCompareCfg.CompareValue = 450;
   // pCompareCfg.CompareValue = 350;
-  pCompareCfg.CompareValue = 1800;
+  pCompareCfg.CompareValue = 1700;
   // pCompareCfg.CompareValue = 850;
   // pCompareCfg.CompareValue = 200;
   // pCompareCfg.CompareValue = 250;
@@ -198,7 +198,7 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 500;
   // pCompareCfg.CompareValue = 800;
   // pCompareCfg.CompareValue = 600;
-  pCompareCfg.CompareValue = 3300;
+  pCompareCfg.CompareValue = 3100;
   // pCompareCfg.CompareValue = 1600;
   // pCompareCfg.CompareValue = 300;
   // pCompareCfg.CompareValue = 400;
