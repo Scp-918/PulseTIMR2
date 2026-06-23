@@ -44,7 +44,7 @@ extern "C" {
 #define AD4007_SIGN_EXTEND_MASK              (0xFFFC0000u)
 
 /* HRTIM ISR 内单次 LL 阻塞读取的总硬超时。 */
-#define AD4007_BLOCKING_TIMEOUT_US            (15u)
+#define AD4007_BLOCKING_TIMEOUT_US            (11u)
 
 /* LL 阻塞读取运行统计，供调试器只读观察。 */
 typedef struct
