@@ -148,9 +148,6 @@ static void AD4007_RecoverBlockingTransfer(void)
     LL_SPI_Disable(SPI3);
     AD4007_ClearSpiReceiveAndErrors();
     LL_SPI_Enable(SPI3);
-
-    hspi3.ErrorCode = HAL_SPI_ERROR_NONE;
-    hspi3.State = HAL_SPI_STATE_READY;
 }
 
 /*
@@ -390,9 +387,6 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
         return HAL_BUSY;
     }
 
-    hspi3.State = HAL_SPI_STATE_BUSY_TX_RX;
-    hspi3.ErrorCode = HAL_SPI_ERROR_NONE;
-
     AD4007_EnableCycleCounter();
     start_cycles = DWT->CYCCNT;
     timeout_cycles = AD4007_BlockingTimeoutCycles();
@@ -464,7 +458,6 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
     }
 
     *out_code = AD4007_DecodeOneSample(rx_frame);
-    hspi3.State = HAL_SPI_STATE_READY;
     g_ad4007_runtime_stats.read_ok_count++;
     return HAL_OK;
 }
