@@ -100,6 +100,9 @@ static volatile uint8_t g_group_frame_ready_for_send = 0U;
 
 /* 本相位周期内下一个可用采样槽位。 */
 static volatile uint8_t g_adc_pulse_start_index = 0U;
+/* 本相位 6 个原始 slot 及有效位，相位结束时归并为 early/late 均值。 */
+static int32_t g_adc_slot_codes[6] = {0};
+static uint8_t g_adc_slot_valid_mask = 0U;
 
 /* 当前正在构建的组帧（4 相位内持续填充）。 */
 static SensorDataFrame_t g_group_frame = {0};
@@ -547,6 +550,8 @@ static void Sensor_DrainRingBuffer(SensorRingBuffer_t *rb)
 static void ADC_ResetCycleAccumulator(void)
 {
   g_adc_pulse_start_index = 0U;
+  g_adc_slot_valid_mask = 0U;
+  (void)memset(g_adc_slot_codes, 0, sizeof(g_adc_slot_codes));
 }
 
 /*
@@ -556,6 +561,26 @@ static void ADC_ResetCycleAccumulator(void)
  */
 static void ADC_FinalizeStateAndRotateBridge(void)
 {
+  uint8_t state_index = (uint8_t)(g_tim_group_phase - 1U);
+  int32_t early_avg = 0;
+  int32_t late_avg = 0;
+
+  if (state_index < 4U)
+  {
+    (void)AD4007_AverageValidSlots(g_adc_slot_codes,
+                                   g_adc_slot_valid_mask,
+                                   0U,
+                                   3U,
+                                   &early_avg);
+    (void)AD4007_AverageValidSlots(g_adc_slot_codes,
+                                   g_adc_slot_valid_mask,
+                                   3U,
+                                   3U,
+                                   &late_avg);
+    g_group_frame.adc_data[state_index].early_code = early_avg;
+    g_group_frame.adc_data[state_index].late_code = late_avg;
+  }
+
   g_tim_group_phase++;
   if (g_tim_group_phase > 4U)
   {
@@ -1163,10 +1188,8 @@ void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
 
 void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  ADC_ChannelData_t *adc_channel;
   int32_t code = 0;
   uint8_t slot;
-  uint8_t state_index;
 
   if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
   {
@@ -1180,25 +1203,13 @@ void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
     if (g_adc_pulse_start_index < 6U)
     {
       slot = g_adc_pulse_start_index;
-      state_index = (uint8_t)(g_tim_group_phase - 1U);
+      g_adc_slot_codes[slot] = 0;
+      g_adc_slot_valid_mask &= (uint8_t)~(uint8_t)(1U << slot);
 
-      if (state_index < 4U)
+      if (AD4007_ReadBlocking_LL(&code) == HAL_OK)
       {
-        adc_channel = &g_group_frame.adc_data[state_index];
-
-        if (slot == 0U)
-        {
-          adc_channel->slot_valid_mask = 0U;
-        }
-
-        adc_channel->slot_code[slot] = 0;
-        adc_channel->slot_valid_mask &= (uint8_t)~(uint8_t)(1U << slot);
-
-        if (AD4007_ReadBlocking_LL(&code) == HAL_OK)
-        {
-          adc_channel->slot_code[slot] = code;
-          adc_channel->slot_valid_mask |= (uint8_t)(1U << slot);
-        }
+        g_adc_slot_codes[slot] = code;
+        g_adc_slot_valid_mask |= (uint8_t)(1U << slot);
       }
 
       /* 每个物理 CNV 脉冲固定映射到一个 slot，失败也必须推进。 */

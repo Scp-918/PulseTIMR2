@@ -15,17 +15,17 @@ extern "C" {
  * =========================== */
 
 /*
- * [单帧长度] 固定 99 字节。
+ * [单帧长度] 固定 51 字节。
  * 帧结构严格对应：
  * - [0..1]   : 帧头
- * - [2..73]  : 4通道 ADC，每通道 6 个 raw slot，各 3 字节，共 72 字节
- * - [74..82] : PPG 三路（G/R/IR），每路 3 字节，共 9 字节
- * - [83..94] : IMU 六轴，每轴 2 字节，共 12 字节
- * - [95]     : XOR 校验，覆盖 payload [2..94]
- * - [96..97] : 源端帧序号 frame_seq，uint16 小端，不参与 XOR
- * - [98]     : 帧尾 0xCC
+ * - [2..25]  : 4通道 ADC，每通道 early/late 各 3 字节，共 24 字节
+ * - [26..34] : PPG 三路（G/R/IR），每路 3 字节，共 9 字节
+ * - [35..46] : IMU 六轴，每轴 2 字节，共 12 字节
+ * - [47]     : XOR 校验，覆盖 payload [2..46]
+ * - [48..49] : 源端帧序号 frame_seq，uint16 小端，不参与 XOR
+ * - [50]     : 帧尾 0xCC
  */
-#define BLE_COMM_SINGLE_FRAME_SIZE          99U
+#define BLE_COMM_SINGLE_FRAME_SIZE          51U
 
 /* [批量帧数] 每次 DMA 发送 10 帧。 */
 #define BLE_COMM_BATCH_FRAME_COUNT          10U
@@ -44,27 +44,27 @@ extern "C" {
 
 #define BLE_COMM_IDX_ADC_START              2U
 #define BLE_COMM_ADC_CHANNEL_COUNT          4U
-#define BLE_COMM_ADC_VALUES_PER_CHANNEL     6U
+#define BLE_COMM_ADC_VALUES_PER_CHANNEL     2U
 #define BLE_COMM_ADC_BYTES_PER_VALUE        3U
 #define BLE_COMM_ADC_BYTES_PER_CHANNEL      (BLE_COMM_ADC_VALUES_PER_CHANNEL * BLE_COMM_ADC_BYTES_PER_VALUE)
-#define BLE_COMM_IDX_ADC_END                73U
+#define BLE_COMM_IDX_ADC_END                25U
 
-#define BLE_COMM_IDX_PPG_START              74U
+#define BLE_COMM_IDX_PPG_START              26U
 #define BLE_COMM_PPG_CHANNEL_COUNT          3U
 #define BLE_COMM_PPG_BYTES_PER_CHANNEL      3U
-#define BLE_COMM_IDX_PPG_END                82U
+#define BLE_COMM_IDX_PPG_END                34U
 
-#define BLE_COMM_IDX_IMU_START              83U
+#define BLE_COMM_IDX_IMU_START              35U
 #define BLE_COMM_IMU_AXIS_COUNT             6U
 #define BLE_COMM_IMU_BYTES_PER_AXIS         2U
-#define BLE_COMM_IDX_IMU_END                94U
+#define BLE_COMM_IDX_IMU_END                46U
 
-#define BLE_COMM_IDX_CHECKSUM               95U
-#define BLE_COMM_IDX_FRAME_SEQ_L            96U
-#define BLE_COMM_IDX_FRAME_SEQ_H            97U
-#define BLE_COMM_IDX_TAIL0                  98U
+#define BLE_COMM_IDX_CHECKSUM               47U
+#define BLE_COMM_IDX_FRAME_SEQ_L            48U
+#define BLE_COMM_IDX_FRAME_SEQ_H            49U
+#define BLE_COMM_IDX_TAIL0                  50U
 
-/* [校验区间] 按协议要求：仅对 payload [2..94] 异或，frame_seq 不参与。 */
+/* [校验区间] 按协议要求：仅对 payload [2..46] 异或，frame_seq 不参与。 */
 #define BLE_COMM_XOR_START_IDX              BLE_COMM_IDX_ADC_START
 #define BLE_COMM_XOR_END_IDX                BLE_COMM_IDX_IMU_END
 
@@ -73,15 +73,15 @@ extern "C" {
  * =========================== */
 
 /*
- * @brief 将一帧传感器数据按协议打包为 99 字节。
+ * @brief 将一帧传感器数据按协议打包为 51 字节。
  * @param frame      输入传感器融合帧。
  * @param out_buffer 输出缓存，长度至少为 BLE_COMM_SINGLE_FRAME_SIZE。
  *
  * @note
- * 1) ADC 区按 4 通道循环展开：ch0~ch3，每通道依次写 slot0..slot5。
+ * 1) ADC 区按 4 通道循环展开：ch0~ch3，每通道 early 后接 late。
  * 2) PPG 区按 Green/Red/IR 顺序写入 3 字节低位。
  * 3) IMU 区按 Gx/Gy/Gz/Ax/Ay/Az 顺序写入 2 字节小端。
- * 4) checksum 只 XOR [2..94]，frame_seq 不参与校验。
+ * 4) checksum 只 XOR [2..46]，frame_seq 不参与校验。
  * 5) 24-bit 提取采用显式位掩码 + 右移，不使用指针强转。
  */
 void BLE_PackSingleFrame(SensorDataFrame_t *frame, uint8_t *out_buffer);
