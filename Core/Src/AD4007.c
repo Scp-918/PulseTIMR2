@@ -380,8 +380,7 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
 
     *out_code = 0;
 
-    if ((hspi3.State != HAL_SPI_STATE_READY) ||
-        ((SPI3->CR2 & (SPI_CR2_TXDMAEN | SPI_CR2_RXDMAEN)) != 0u))
+    if (hspi3.State != HAL_SPI_STATE_READY)
     {
         g_ad4007_runtime_stats.read_busy_count++;
         return HAL_BUSY;
