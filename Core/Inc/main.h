@@ -54,6 +54,8 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 
+void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx);
+
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/

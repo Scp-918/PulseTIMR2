@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HRTIM_SOURCE = (ROOT / "Core" / "Src" / "hrtim.c").read_text(encoding="utf-8")
+MAIN_SOURCE = (ROOT / "Core" / "Src" / "main.c").read_text(encoding="utf-8")
 IOC_SOURCE = (ROOT / "PulseDrive.ioc").read_text(encoding="utf-8")
 
 
@@ -47,6 +48,34 @@ def ioc_value(name: str) -> int:
 
 
 class HrtimAdcTimingTest(unittest.TestCase):
+    def test_timer_a_rst2_interrupt_is_disabled(self) -> None:
+        hrtim_source = active_c_source(HRTIM_SOURCE)
+        timer_interrupt_requests = re.findall(
+            r"pTimerCfg\.InterruptRequests\s*=\s*([^;]+);",
+            hrtim_source,
+        )
+        self.assertGreaterEqual(len(timer_interrupt_requests), 2)
+        self.assertEqual(timer_interrupt_requests[1].strip(), "HRTIM_TIM_IT_NONE")
+
+        main_source = active_c_source(MAIN_SOURCE)
+        enable_match = re.search(
+            r"__HAL_HRTIM_TIMER_ENABLE_IT\(\s*&hhrtim1\s*,\s*"
+            r"HRTIM_TIMERINDEX_TIMER_A\s*,(.*?)\);",
+            main_source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(enable_match)
+        enabled_interrupts = enable_match.group(1)
+        for interrupt in ("HRTIM_TIM_IT_CMP1", "HRTIM_TIM_IT_CMP3", "HRTIM_TIM_IT_REP"):
+            self.assertIn(interrupt, enabled_interrupts)
+        self.assertNotIn("HRTIM_TIM_IT_RST2", enabled_interrupts)
+
+        self.assertEqual(ioc_value("HRTIM1.NumberInterruptRequests-Output_TA1TA2"), 0)
+        self.assertNotRegex(
+            IOC_SOURCE,
+            r"^HRTIM1\.InterruptRequests\d+-Output_TA1TA2=HRTIM_TIM_IT_RST2$",
+        )
+
     def test_cnv_is_one_point_five_microseconds_high_and_fifteen_microseconds_low(self) -> None:
         values = generated_timer_a_values()
         self.assertEqual(

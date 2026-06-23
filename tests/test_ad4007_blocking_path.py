@@ -22,9 +22,9 @@ def function_body(source: str, signature: str, next_signature: str) -> str:
 
 
 class Ad4007BlockingPathTest(unittest.TestCase):
-    def test_public_api_exposes_four_microsecond_ll_read_and_stats(self) -> None:
+    def test_public_api_exposes_five_microsecond_ll_read_and_stats(self) -> None:
         self.assertIn("#define AD4007_BLOCKING_TIMEOUT_US", HEADER_SOURCE)
-        self.assertRegex(HEADER_SOURCE, r"AD4007_BLOCKING_TIMEOUT_US\s+\(4u\)")
+        self.assertRegex(HEADER_SOURCE, r"AD4007_BLOCKING_TIMEOUT_US\s+\(5u\)")
         self.assertIn("AD4007_ReadBlocking_LL", HEADER_SOURCE)
         self.assertIn("AD4007_AverageValidSlots", HEADER_SOURCE)
         self.assertIn("AD4007_RuntimeStats_t", HEADER_SOURCE)
@@ -60,8 +60,8 @@ class Ad4007BlockingPathTest(unittest.TestCase):
     def test_falling_edge_path_records_validity_and_always_advances_slot(self) -> None:
         body = function_body(
             MAIN_SOURCE,
-            "static void ADC_OnFallingEdgeTrigger",
-            "void HAL_HRTIM_Compare1EventCallback",
+            "void ADC_OnFallingEdgeTrigger",
+            "/* USER CODE END 4 */",
         )
         self.assertIn("AD4007_ReadBlocking_LL", body)
         self.assertIn("slot_valid_mask", body)

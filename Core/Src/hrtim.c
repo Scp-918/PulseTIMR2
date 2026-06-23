@@ -139,7 +139,7 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  pTimerCfg.InterruptRequests = HRTIM_TIM_IT_RST2;
+  pTimerCfg.InterruptRequests = HRTIM_TIM_IT_NONE;
   pTimerCfg.DMARequests = HRTIM_TIM_DMA_NONE;
   pTimerCfg.StartOnSync = HRTIM_SYNCSTART_DISABLED;
   pTimerCfg.PushPull = HRTIM_TIMPUSHPULLMODE_DISABLED;

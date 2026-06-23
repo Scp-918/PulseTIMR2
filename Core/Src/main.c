@@ -937,8 +937,7 @@ int main(void)
                               HRTIM_TIMERINDEX_TIMER_A,
                               HRTIM_TIM_IT_CMP1 |
                              HRTIM_TIM_IT_CMP3 |
-                             HRTIM_TIM_IT_REP |
-                             HRTIM_TIM_IT_RST2);
+                             HRTIM_TIM_IT_REP);
 
   HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
   HAL_NVIC_EnableIRQ(HRTIM1_TIMA_IRQn);
@@ -1156,7 +1155,7 @@ void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
   }
 }
 
-static void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
+void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
   ADC_ChannelData_t *adc_channel;
   int32_t code = 0;
@@ -1200,31 +1199,6 @@ static void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
       g_adc_pulse_start_index++;
     }
   }
-}
-
-void HAL_HRTIM_Compare1EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
-{
-  /* 在 CMP1 对应的 CNV 下降沿执行 LL 阻塞读取。 */
-  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
-}
-
-void HAL_HRTIM_Compare3EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
-{
-  /* 在 CMP3 对应的 CNV 下降沿执行 LL 阻塞读取。 */
-  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
-}
-
-void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
-{
-  /* 在 REP 对应的 CNV 下降沿执行 LL 阻塞读取。 */
-  ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
-}
-
-void HAL_HRTIM_Output2ResetCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
-{
-  (void)hhrtim;
-  (void)TimerIdx;
-  /* 当前策略不使用 RST2 触发采样，仅保留回调占位。 */
 }
 
 /* USER CODE END 4 */

@@ -370,6 +370,56 @@ void HRTIM1_TIMA_IRQHandler(void)
 {
   /* USER CODE BEGIN HRTIM1_TIMA_IRQn 0 */
 
+  uint32_t timer_isr;
+  uint32_t timer_dier;
+  uint32_t pending_events = 0U;
+
+  /*
+   * TimerA 只服务三个 CNV 下降沿事件。先建立快照并一次性清除，
+   * 避免随后的阻塞式 SPI 读取期间同一 pending 位重复进入中断。
+   */
+  timer_isr = READ_REG(hhrtim1.Instance->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].TIMxISR);
+  timer_dier = READ_REG(hhrtim1.Instance->sTimerxRegs[HRTIM_TIMERINDEX_TIMER_A].TIMxDIER);
+
+  if (((timer_isr & HRTIM_TIM_FLAG_CMP1) != 0U) &&
+      ((timer_dier & HRTIM_TIM_IT_CMP1) != 0U))
+  {
+    pending_events |= HRTIM_TIM_IT_CMP1;
+  }
+  if (((timer_isr & HRTIM_TIM_FLAG_CMP3) != 0U) &&
+      ((timer_dier & HRTIM_TIM_IT_CMP3) != 0U))
+  {
+    pending_events |= HRTIM_TIM_IT_CMP3;
+  }
+  if (((timer_isr & HRTIM_TIM_FLAG_REP) != 0U) &&
+      ((timer_dier & HRTIM_TIM_IT_REP) != 0U))
+  {
+    pending_events |= HRTIM_TIM_IT_REP;
+  }
+
+  if (pending_events != 0U)
+  {
+    __HAL_HRTIM_TIMER_CLEAR_IT(&hhrtim1,
+                               HRTIM_TIMERINDEX_TIMER_A,
+                               pending_events);
+
+    if ((pending_events & HRTIM_TIM_IT_CMP1) != 0U)
+    {
+      ADC_OnFallingEdgeTrigger(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A);
+    }
+    if ((pending_events & HRTIM_TIM_IT_CMP3) != 0U)
+    {
+      ADC_OnFallingEdgeTrigger(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A);
+    }
+    if ((pending_events & HRTIM_TIM_IT_REP) != 0U)
+    {
+      ADC_OnFallingEdgeTrigger(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A);
+    }
+  }
+
+  /* TimerA 已由上述快路径完整处理，不进入 HAL_HRTIM_IRQHandler。 */
+  return;
+
   /* USER CODE END HRTIM1_TIMA_IRQn 0 */
   HAL_HRTIM_IRQHandler(&hhrtim1,HRTIM_TIMERINDEX_TIMER_A);
   /* USER CODE BEGIN HRTIM1_TIMA_IRQn 1 */
