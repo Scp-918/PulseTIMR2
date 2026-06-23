@@ -47,11 +47,11 @@ def ioc_value(name: str) -> int:
 
 
 class HrtimAdcTimingTest(unittest.TestCase):
-    def test_cnv_is_one_microsecond_high_and_one_hundred_microseconds_low(self) -> None:
+    def test_cnv_is_one_microsecond_high_and_twenty_microseconds_low(self) -> None:
         values = generated_timer_a_values()
         self.assertEqual(
             values,
-            {"period": 20300, "cmp1": 100, "cmp2": 10100, "cmp3": 10200, "cmp4": 20200},
+            {"period": 4300, "cmp1": 100, "cmp2": 2100, "cmp3": 2200, "cmp4": 4200},
         )
 
         set_ticks = [0, values["cmp2"], values["cmp4"]]
@@ -59,13 +59,13 @@ class HrtimAdcTimingTest(unittest.TestCase):
         self.assertEqual([reset - set_ for set_, reset in zip(set_ticks, reset_ticks)], [100] * 3)
         self.assertEqual(
             [set_ticks[i + 1] - reset_ticks[i] for i in range(2)],
-            [10000] * 2,
+            [2000] * 2,
         )
 
     def test_late_burst_finishes_before_master_compare4(self) -> None:
         master = generated_master_values()
         timer_a = generated_timer_a_values()
-        self.assertEqual(master["cmp3"], 24500)
+        self.assertEqual(master["cmp3"], 28500)
 
         late_last_falling_edge_ns = master["cmp3"] * 40 + timer_a["period"] * 10
         master_compare4_ns = master["cmp4"] * 40
