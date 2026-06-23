@@ -71,6 +71,13 @@ typedef struct
 HAL_StatusTypeDef AD4007_Init(void);
 
 /*
+ * @brief 在HRTIM采样启动前确认SPI3已启用。
+ *
+ * @note 本阶段只处理SPI enable状态，不设置FIFO阈值，也不清理FIFO或错误标志。
+ */
+HAL_StatusTypeDef AD4007_PrepareFastPath(void);
+
+/*
  * @brief 上位机动态配置接口
  * @param enable_high_z      true: 开启 High-Z
  * @param enable_span_comp   true: 开启 Span Compression

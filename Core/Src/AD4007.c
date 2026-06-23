@@ -352,6 +352,17 @@ HAL_StatusTypeDef AD4007_test_DMA_Rx(int32_t *out_code, uint32_t timeout_ms)
 }
 #endif
 
+/* HRTIM启动前只确认SPI3处于启用状态，不处理FIFO和错误标志。 */
+HAL_StatusTypeDef AD4007_PrepareFastPath(void)
+{
+    if (LL_SPI_IsEnabled(SPI3) == 0u)
+    {
+        LL_SPI_Enable(SPI3);
+    }
+
+    return (LL_SPI_IsEnabled(SPI3) != 0u) ? HAL_OK : HAL_ERROR;
+}
+
 /*
  * 使用 LL 轮询完成单帧读取：
  * - 统一发送 0xFF，确保读取结束后 MOSI/SDI 保持高；
@@ -388,10 +399,6 @@ HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
 
     LL_SPI_SetRxFIFOThreshold(SPI3, LL_SPI_RX_FIFO_TH_QUARTER);
     AD4007_ClearSpiReceiveAndErrors();
-    if (LL_SPI_IsEnabled(SPI3) == 0u)
-    {
-        LL_SPI_Enable(SPI3);
-    }
 
     if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
     {

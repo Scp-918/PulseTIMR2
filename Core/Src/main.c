@@ -892,6 +892,12 @@ int main(void)
     Error_Handler();
   }
 
+  /* HRTIM采样开始前一次性确认SPI3已启用。 */
+  if (AD4007_PrepareFastPath() != HAL_OK)
+  {
+    Error_Handler();
+  }
+
   /* 阶段8：设置初始桥臂相位，并清空本轮采样累加器。 */
   g_tim_group_phase = 1U;
   Bridge_ApplyState(g_tim_group_phase);
