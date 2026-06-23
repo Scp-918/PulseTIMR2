@@ -20,19 +20,19 @@ def source_between(source: str, start: str, end: str) -> str:
 
 
 class Spi3SpeedTest(unittest.TestCase):
-    def test_runtime_spi3_clock_is_twenty_five_megahertz(self) -> None:
+    def test_runtime_spi3_clock_is_fifty_megahertz(self) -> None:
         source = active_c_source(SPI_SOURCE)
         init = source_between(source, "void MX_SPI3_Init", "void HAL_SPI_MspInit")
 
         self.assertIn(
-            "hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;",
+            "hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;",
             init,
         )
-        self.assertNotIn("SPI_BAUDRATEPRESCALER_2", init)
+        self.assertNotIn("SPI_BAUDRATEPRESCALER_4", init)
 
         apb1_match = re.search(r"^RCC\.APB1Freq_Value=(\d+)$", IOC_SOURCE, re.MULTILINE)
         self.assertIsNotNone(apb1_match)
-        self.assertEqual(int(apb1_match.group(1)) // 4, 25_000_000)
+        self.assertEqual(int(apb1_match.group(1)) // 2, 50_000_000)
 
     def test_spi3_gpio_uses_very_high_speed(self) -> None:
         msp = source_between(
@@ -42,12 +42,12 @@ class Spi3SpeedTest(unittest.TestCase):
         )
         self.assertIn("GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;", msp)
 
-    def test_ioc_matches_twenty_five_megahertz_spi3_configuration(self) -> None:
+    def test_ioc_matches_fifty_megahertz_spi3_configuration(self) -> None:
         self.assertIn(
-            "SPI3.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_4",
+            "SPI3.BaudRatePrescaler=SPI_BAUDRATEPRESCALER_2",
             IOC_SOURCE,
         )
-        self.assertIn("SPI3.CalculateBaudRate=25.0 MBits/s", IOC_SOURCE)
+        self.assertIn("SPI3.CalculateBaudRate=50.0 MBits/s", IOC_SOURCE)
 
         for pin in ("PC10", "PC11", "PC12"):
             self.assertIn(f"{pin}.GPIOParameters=GPIO_Speed", IOC_SOURCE)
