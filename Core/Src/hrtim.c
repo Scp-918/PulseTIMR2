@@ -114,14 +114,11 @@ void MX_HRTIM1_Init(void)
   {
     Error_Handler();
   }
-  /*
-   * Timer A 使用 30us 下降沿间隔，CNV 高电平保持 1us：
-   * - 旧 2.5us/4us/3us/5us/8us/1.5us/2us/15us/10us 参数保留用于回滚对照。
-   */
+  /* Timer A：CNV 高电平 1us、低电平 5us，三个脉冲总长 13us。 */
   // pTimeBaseCfg.Period = 550;
   // pTimeBaseCfg.Period = 850;
   // pTimeBaseCfg.Period = 650;
-  pTimeBaseCfg.Period = 6100;
+  pTimeBaseCfg.Period = 1300;
   // pTimeBaseCfg.Period = 1650;
   // pTimeBaseCfg.Period = 350;
   // pTimeBaseCfg.Period = 450;
@@ -170,7 +167,7 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 250;
   // pCompareCfg.CompareValue = 400;
   // pCompareCfg.CompareValue = 300;
-  pCompareCfg.CompareValue = 3000;
+  pCompareCfg.CompareValue = 600;
   // pCompareCfg.CompareValue = 800;
   // pCompareCfg.CompareValue = 150;
   // pCompareCfg.CompareValue = 200;
@@ -187,7 +184,7 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 300;
   // pCompareCfg.CompareValue = 450;
   // pCompareCfg.CompareValue = 350;
-  pCompareCfg.CompareValue = 3100;
+  pCompareCfg.CompareValue = 700;
   // pCompareCfg.CompareValue = 850;
   // pCompareCfg.CompareValue = 200;
   // pCompareCfg.CompareValue = 250;
@@ -201,7 +198,7 @@ void MX_HRTIM1_Init(void)
   // pCompareCfg.CompareValue = 500;
   // pCompareCfg.CompareValue = 800;
   // pCompareCfg.CompareValue = 600;
-  pCompareCfg.CompareValue = 6000;
+  pCompareCfg.CompareValue = 1200;
   // pCompareCfg.CompareValue = 1600;
   // pCompareCfg.CompareValue = 300;
   // pCompareCfg.CompareValue = 400;

@@ -43,6 +43,20 @@ extern "C" {
 #define AD4007_SIGN_BIT_18BIT                (0x20000u)
 #define AD4007_SIGN_EXTEND_MASK              (0xFFFC0000u)
 
+/* HRTIM ISR 内单次 LL 阻塞读取的总硬超时。 */
+#define AD4007_BLOCKING_TIMEOUT_US            (15u)
+
+/* LL 阻塞读取运行统计，供调试器只读观察。 */
+typedef struct
+{
+    volatile uint32_t read_ok_count;
+    volatile uint32_t read_busy_count;
+    volatile uint32_t txe_timeout_count;
+    volatile uint32_t rxne_timeout_count;
+    volatile uint32_t bsy_timeout_count;
+    volatile uint32_t spi_error_count;
+} AD4007_RuntimeStats_t;
+
 /* ========================= 对外接口声明 ========================= */
 
 /*
@@ -67,8 +81,34 @@ HAL_StatusTypeDef AD4007_Init(void);
 HAL_StatusTypeDef AD4007_ConfigMode(bool enable_high_z, bool enable_span_comp, bool enable_turbo);
 
 /*
+ * @brief 使用 LL 寄存器内联接口阻塞读取一个 24-bit AD4007 帧。
+ * @param out_code 输出解码并符号扩展后的 18-bit ADC 码值。
+ *
+ * @note 整笔事务由 DWT 周期计数器限制在 AD4007_BLOCKING_TIMEOUT_US 内，
+ *       适合在 CNV 下降沿对应的 HRTIM ISR 中调用。
+ */
+HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code);
+
+/*
+ * @brief 只对 valid_mask 标记有效的 slot 求平均。
+ * @param slot_codes  六个原始 slot 码值。
+ * @param valid_mask  bit0..bit5 分别对应 slot0..slot5。
+ * @param first_slot  平均区间首 slot，范围 0..5。
+ * @param slot_count  平均区间长度，且 first_slot+slot_count <= 6。
+ * @param out_avg_code 输出有效 slot 的整型平均；无有效项时输出 0。
+ */
+HAL_StatusTypeDef AD4007_AverageValidSlots(const int32_t slot_codes[6],
+                                           uint8_t valid_mask,
+                                           uint8_t first_slot,
+                                           uint8_t slot_count,
+                                           int32_t *out_avg_code);
+
+/* 返回 LL 阻塞读取的只读运行统计。 */
+const AD4007_RuntimeStats_t *AD4007_GetRuntimeStats(void);
+
+/*
  * 历史调试接口归档：
- * - 正式固件仅保留 AD4007_Init/AD4007_Start_DMA_Rx/AD4007_ProcessRawData 三条主路径；
+ * - 当前 HRTIM 主路径使用 AD4007_ReadBlocking_LL；原 DMA 接口继续保留；
  * - 单次手动 CNV 的测试接口保留在 #if 0 中，便于后续联调快速回滚。
  */
 #if 0

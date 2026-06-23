@@ -98,15 +98,9 @@ static volatile uint8_t g_tim_group_phase = 1U;
 /* 一组 4 相位结束后由 ISR 置位，主循环据此提交并发送融合帧。 */
 static volatile uint8_t g_group_frame_ready_for_send = 0U;
 
-/* AD4007 当前是否仍有一笔 DMA 结果待解析（避免重入覆盖）。 */
-static volatile uint8_t g_adc_dma_pending = 0U;
-/* 待解析 DMA 数据对应的槽位索引（0~5，对应 3+3 脉冲）。 */
-static volatile uint8_t g_adc_dma_pending_slot = 0U;
 /* 本相位周期内下一个可用采样槽位。 */
 static volatile uint8_t g_adc_pulse_start_index = 0U;
 
-/* AD4007 原始 DMA 缓冲：6 槽 * 每槽 1 帧原始字节。 */
-static uint8_t g_adc_dma_raw[6][AD4007_FRAME_BYTES] = {{0}};
 /* 当前正在构建的组帧（4 相位内持续填充）。 */
 static SensorDataFrame_t g_group_frame = {0};
 /* 主循环待发送帧（一帧延迟发送策略）。 */
@@ -553,58 +547,15 @@ static void Sensor_DrainRingBuffer(SensorRingBuffer_t *rb)
 static void ADC_ResetCycleAccumulator(void)
 {
   g_adc_pulse_start_index = 0U;
-  g_adc_dma_pending = 0U;
-  g_adc_dma_pending_slot = 0U;
-}
-
-/* 在 SPI3 空闲时解析待处理 DMA 原始数据，并写入当前相位 raw slot。 */
-static void ADC_TryHarvestPendingSample(void)
-{
-  int32_t code = 0;
-  uint8_t state_index;
-  uint8_t slot;
-
-  if (g_adc_dma_pending == 0U)
-  {
-    return;
-  }
-
-  if (hspi3.State != HAL_SPI_STATE_READY)
-  {
-    return;
-  }
-
-  slot = g_adc_dma_pending_slot;
-  state_index = (uint8_t)(g_tim_group_phase - 1U);
-  if (AD4007_ProcessRawData(g_adc_dma_raw[slot], 1U, &code) != HAL_OK)
-  {
-    g_adc_dma_pending = 0U;
-    return;
-  }
-
-  if ((state_index < 4U) && (slot < 6U))
-  {
-    g_group_frame.adc_data[state_index].slot_code[slot] = code;
-  }
-
-  g_adc_dma_pending = 0U;
 }
 
 /*
  * 在每个相位结束时：
- * 1) 回收该相位最后一个 pending raw slot；
- * 2) 轮转桥臂到下一个相位；
- * 3) 复位相位内采样窗口。
+ * 1) 轮转桥臂到下一个相位；
+ * 2) 复位相位内采样窗口。
  */
 static void ADC_FinalizeStateAndRotateBridge(void)
 {
-  ADC_TryHarvestPendingSample();
-  if (g_adc_dma_pending != 0U)
-  {
-    (void)HAL_SPI_Abort(&hspi3);
-    g_adc_dma_pending = 0U;
-  }
-
   g_tim_group_phase++;
   if (g_tim_group_phase > 4U)
   {
@@ -1005,8 +956,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    ADC_TryHarvestPendingSample();
-
     /*
      * 仅在 phase4 提交标志到来后执行一次组帧提交：
      * - 从 ringbuffer 合并本大周期最新 PPG/IMU
@@ -1209,6 +1158,11 @@ void HAL_HRTIM_Compare4EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
 
 static void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
+  ADC_ChannelData_t *adc_channel;
+  int32_t code = 0;
+  uint8_t slot;
+  uint8_t state_index;
+
   if ((hhrtim == &hhrtim1) && (TimerIdx == HRTIM_TIMERINDEX_TIMER_A))
   {
     if (g_sensor_cfg_apply_cycle_active != 0U)
@@ -1217,39 +1171,52 @@ static void ADC_OnFallingEdgeTrigger(HRTIM_HandleTypeDef *hhrtim, uint32_t Timer
       return;
     }
 
-    /* TA2 reset：对应 CNV 下降沿，启动 AD4007 单点 SPI+DMA 读取。 */
-    ADC_TryHarvestPendingSample();
-
-    if (g_adc_dma_pending == 0U)
+    /* TA2 reset：对应 CNV 下降沿，立即执行单帧 LL 阻塞读取。 */
+    if (g_adc_pulse_start_index < 6U)
     {
-      if (g_adc_pulse_start_index < 6U)
+      slot = g_adc_pulse_start_index;
+      state_index = (uint8_t)(g_tim_group_phase - 1U);
+
+      if (state_index < 4U)
       {
-        if (AD4007_Start_DMA_Rx(g_adc_dma_raw[g_adc_pulse_start_index], 1U) == HAL_OK)
+        adc_channel = &g_group_frame.adc_data[state_index];
+
+        if (slot == 0U)
         {
-          g_adc_dma_pending_slot = g_adc_pulse_start_index;
-          g_adc_dma_pending = 1U;
-          g_adc_pulse_start_index++;
+          adc_channel->slot_valid_mask = 0U;
+        }
+
+        adc_channel->slot_code[slot] = 0;
+        adc_channel->slot_valid_mask &= (uint8_t)~(uint8_t)(1U << slot);
+
+        if (AD4007_ReadBlocking_LL(&code) == HAL_OK)
+        {
+          adc_channel->slot_code[slot] = code;
+          adc_channel->slot_valid_mask |= (uint8_t)(1U << slot);
         }
       }
+
+      /* 每个物理 CNV 脉冲固定映射到一个 slot，失败也必须推进。 */
+      g_adc_pulse_start_index++;
     }
   }
 }
 
 void HAL_HRTIM_Compare1EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 当前生效方案：在 CMP1 事件触发 ADC DMA。 */
+  /* 在 CMP1 对应的 CNV 下降沿执行 LL 阻塞读取。 */
   ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 void HAL_HRTIM_Compare3EventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 当前生效方案：在 CMP3 事件触发 ADC DMA。 */
+  /* 在 CMP3 对应的 CNV 下降沿执行 LL 阻塞读取。 */
   ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 
 void HAL_HRTIM_RepetitionEventCallback(HRTIM_HandleTypeDef *hhrtim, uint32_t TimerIdx)
 {
-  /* 当前生效方案：在 REP 事件触发 ADC DMA。 */
+  /* 在 REP 对应的 CNV 下降沿执行 LL 阻塞读取。 */
   ADC_OnFallingEdgeTrigger(hhrtim, TimerIdx);
 }
 

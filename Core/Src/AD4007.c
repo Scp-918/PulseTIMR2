@@ -1,7 +1,10 @@
 #include "AD4007.h"
 #include "spi.h"
+#include "stm32g4xx_ll_spi.h"
 
 extern SPI_HandleTypeDef hspi3;
+
+static AD4007_RuntimeStats_t g_ad4007_runtime_stats = {0};
 
 /* 统一使用 0xFF 作为读取时的发送填充值，确保 MOSI 在最后一位保持为高。 */
 static const uint8_t AD4007_SPI_TX_DUMMY[AD4007_FRAME_BYTES] = {0xFFu, 0xFFu, 0xFFu};
@@ -91,6 +94,65 @@ static int32_t AD4007_DecodeOneSample(const uint8_t frame[AD4007_FRAME_BYTES])
     return (int32_t)code18;
 }
 
+/* 启用 Cortex-M4 DWT 周期计数器；不清零，以免干扰其他性能观测。 */
+static void AD4007_EnableCycleCounter(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+/* 将微秒硬超时换算为 CPU 周期，至少保留 1 个周期。 */
+static uint32_t AD4007_BlockingTimeoutCycles(void)
+{
+    uint32_t cycles_per_us = SystemCoreClock / 1000000u;
+
+    if (cycles_per_us == 0u)
+    {
+        cycles_per_us = 1u;
+    }
+
+    return cycles_per_us * AD4007_BLOCKING_TIMEOUT_US;
+}
+
+static bool AD4007_BlockingDeadlineExpired(uint32_t start_cycles, uint32_t timeout_cycles)
+{
+    return ((uint32_t)(DWT->CYCCNT - start_cycles) >= timeout_cycles);
+}
+
+/* 清理 SPI3 接收 FIFO 与错误标志，供事务前准备和失败恢复共用。 */
+static void AD4007_ClearSpiReceiveAndErrors(void)
+{
+    while (LL_SPI_IsActiveFlag_RXNE(SPI3) != 0u)
+    {
+        (void)LL_SPI_ReceiveData8(SPI3);
+    }
+
+    if (LL_SPI_IsActiveFlag_OVR(SPI3) != 0u)
+    {
+        LL_SPI_ClearFlag_OVR(SPI3);
+    }
+    if (LL_SPI_IsActiveFlag_MODF(SPI3) != 0u)
+    {
+        LL_SPI_ClearFlag_MODF(SPI3);
+    }
+    if (LL_SPI_IsActiveFlag_FRE(SPI3) != 0u)
+    {
+        LL_SPI_ClearFlag_FRE(SPI3);
+    }
+}
+
+/* 失败路径重置 SPI3，确保下一 CNV 脉冲可以重新尝试读取。 */
+static void AD4007_RecoverBlockingTransfer(void)
+{
+    CLEAR_BIT(SPI3->CR2, SPI_CR2_TXDMAEN | SPI_CR2_RXDMAEN);
+    LL_SPI_Disable(SPI3);
+    AD4007_ClearSpiReceiveAndErrors();
+    LL_SPI_Enable(SPI3);
+
+    hspi3.ErrorCode = HAL_SPI_ERROR_NONE;
+    hspi3.State = HAL_SPI_STATE_READY;
+}
+
 /*
  * 强制 MOSI 拉高：
  * 读取结束后把 PC12(MOSI) 短暂切到 GPIO 输出高，再恢复 SPI3 AF6。
@@ -157,6 +219,8 @@ HAL_StatusTypeDef AD4007_Init(void)
     HAL_StatusTypeDef ret;
     uint8_t discard_rx[AD4007_FRAME_BYTES] = {0};
 
+    AD4007_EnableCycleCounter();
+
     /* 必须是 SPI Mode 0：CPOL=0, CPHA=0。若不满足则重配 SPI3。 */
     if ((hspi3.Init.CLKPolarity != SPI_POLARITY_LOW) || (hspi3.Init.CLKPhase != SPI_PHASE_1EDGE))
     {
@@ -200,7 +264,7 @@ HAL_StatusTypeDef AD4007_Init(void)
 /*
  * 历史调试接口归档：
  * - 下方两组函数用于“软件手动 CNV + 单点读取”联调；
- * - 当前正式路径改为 HRTIM 驱动 + AD4007_Start_DMA_Rx()；
+ * - 当前 HRTIM 主路径使用 LL 阻塞读取，DMA 测试接口仍保留；
  * - 为减少正式固件符号暴露与误调用风险，此处默认不参与编译。
  */
 #if 0
@@ -289,6 +353,161 @@ HAL_StatusTypeDef AD4007_test_DMA_Rx(int32_t *out_code, uint32_t timeout_ms)
 #endif
 
 /*
+ * 使用 LL 轮询完成单帧读取：
+ * - 统一发送 0xFF，确保读取结束后 MOSI/SDI 保持高；
+ * - TXE、RXNE、末尾 BSY 共用同一个 4us DWT 总截止时间；
+ * - 不依赖 SysTick，因此可安全用于 HRTIM ISR。
+ */
+HAL_StatusTypeDef AD4007_ReadBlocking_LL(int32_t *out_code)
+{
+    uint8_t rx_frame[AD4007_FRAME_BYTES] = {0};
+    uint32_t start_cycles;
+    uint32_t timeout_cycles;
+    uint8_t i;
+
+    if (out_code == NULL)
+    {
+        return HAL_ERROR;
+    }
+
+    *out_code = 0;
+
+    if ((hspi3.State != HAL_SPI_STATE_READY) ||
+        ((SPI3->CR2 & (SPI_CR2_TXDMAEN | SPI_CR2_RXDMAEN)) != 0u))
+    {
+        g_ad4007_runtime_stats.read_busy_count++;
+        return HAL_BUSY;
+    }
+
+    hspi3.State = HAL_SPI_STATE_BUSY_TX_RX;
+    hspi3.ErrorCode = HAL_SPI_ERROR_NONE;
+
+    AD4007_EnableCycleCounter();
+    start_cycles = DWT->CYCCNT;
+    timeout_cycles = AD4007_BlockingTimeoutCycles();
+
+    LL_SPI_SetRxFIFOThreshold(SPI3, LL_SPI_RX_FIFO_TH_QUARTER);
+    AD4007_ClearSpiReceiveAndErrors();
+    if (LL_SPI_IsEnabled(SPI3) == 0u)
+    {
+        LL_SPI_Enable(SPI3);
+    }
+
+    if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
+    {
+        g_ad4007_runtime_stats.txe_timeout_count++;
+        AD4007_RecoverBlockingTransfer();
+        return HAL_TIMEOUT;
+    }
+
+    for (i = 0u; i < AD4007_FRAME_BYTES; i++)
+    {
+        while (LL_SPI_IsActiveFlag_TXE(SPI3) == 0u)
+        {
+            if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
+            {
+                g_ad4007_runtime_stats.txe_timeout_count++;
+                AD4007_RecoverBlockingTransfer();
+                return HAL_TIMEOUT;
+            }
+        }
+
+        LL_SPI_TransmitData8(SPI3, 0xFFu);
+
+        while (LL_SPI_IsActiveFlag_RXNE(SPI3) == 0u)
+        {
+            if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
+            {
+                g_ad4007_runtime_stats.rxne_timeout_count++;
+                AD4007_RecoverBlockingTransfer();
+                return HAL_TIMEOUT;
+            }
+        }
+
+        rx_frame[i] = LL_SPI_ReceiveData8(SPI3);
+    }
+
+    while (LL_SPI_IsActiveFlag_TXE(SPI3) == 0u)
+    {
+        if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
+        {
+            g_ad4007_runtime_stats.txe_timeout_count++;
+            AD4007_RecoverBlockingTransfer();
+            return HAL_TIMEOUT;
+        }
+    }
+
+    while (LL_SPI_IsActiveFlag_BSY(SPI3) != 0u)
+    {
+        if (AD4007_BlockingDeadlineExpired(start_cycles, timeout_cycles))
+        {
+            g_ad4007_runtime_stats.bsy_timeout_count++;
+            AD4007_RecoverBlockingTransfer();
+            return HAL_TIMEOUT;
+        }
+    }
+
+    if ((LL_SPI_IsActiveFlag_OVR(SPI3) != 0u) ||
+        (LL_SPI_IsActiveFlag_MODF(SPI3) != 0u) ||
+        (LL_SPI_IsActiveFlag_FRE(SPI3) != 0u))
+    {
+        g_ad4007_runtime_stats.spi_error_count++;
+        AD4007_RecoverBlockingTransfer();
+        return HAL_ERROR;
+    }
+
+    *out_code = AD4007_DecodeOneSample(rx_frame);
+    hspi3.State = HAL_SPI_STATE_READY;
+    g_ad4007_runtime_stats.read_ok_count++;
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef AD4007_AverageValidSlots(const int32_t slot_codes[6],
+                                           uint8_t valid_mask,
+                                           uint8_t first_slot,
+                                           uint8_t slot_count,
+                                           int32_t *out_avg_code)
+{
+    int64_t sum = 0;
+    uint8_t valid_count = 0u;
+    uint8_t slot;
+    uint8_t end_slot;
+
+    if ((slot_codes == NULL) || (out_avg_code == NULL) ||
+        (slot_count == 0u) || (first_slot >= 6u) ||
+        ((uint16_t)first_slot + (uint16_t)slot_count > 6u))
+    {
+        return HAL_ERROR;
+    }
+
+    *out_avg_code = 0;
+    end_slot = (uint8_t)(first_slot + slot_count);
+
+    for (slot = first_slot; slot < end_slot; slot++)
+    {
+        if ((valid_mask & (uint8_t)(1u << slot)) != 0u)
+        {
+            sum += (int64_t)slot_codes[slot];
+            valid_count++;
+        }
+    }
+
+    if (valid_count == 0u)
+    {
+        *out_avg_code = 0;
+        return HAL_ERROR;
+    }
+
+    *out_avg_code = (int32_t)(sum / (int64_t)valid_count);
+    return HAL_OK;
+}
+
+const AD4007_RuntimeStats_t *AD4007_GetRuntimeStats(void)
+{
+    return &g_ad4007_runtime_stats;
+}
+
+/*
  * 启动 SPI3 + DMA 接收：
  * 每个样本固定 3 字节，因此 DMA 长度 = sample_count * 3。
  * 正常工作时 CNV 由 HRTIM 自动脉冲，本函数不进行任何 CNV 翻转。
@@ -368,7 +587,7 @@ HAL_StatusTypeDef AD4007_ProcessRawData(uint8_t *dma_buffer, uint16_t sample_cou
  *
  * 设计意图：
  * 1) 高速触发场景下，DMA 完成回调必须尽量短，避免阻塞后续中断。
- * 2) 当前读取链路使用 HAL_SPI_TransmitReceive_DMA + 0xFF dummy；
+ * 2) 保留的 DMA 读取链路使用 HAL_SPI_TransmitReceive_DMA + 0xFF dummy；
  *    在 SPI 空闲后，MOSI 末位保持高电平（0xFF 的最后一位为 1），
  *    可满足大多数 CS 模式保持需求。
  *

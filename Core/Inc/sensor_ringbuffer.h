@@ -43,13 +43,14 @@ extern "C" {
 typedef struct
 {
   int32_t slot_code[6]; /**< slot0..2 为 early 窗，slot3..5 为 late 窗 */
+  uint8_t slot_valid_mask; /**< bit0..bit5：对应 slot 读取成功时置 1 */
 } ADC_ChannelData_t;
 
 /**
   * @brief 多传感器同步总帧。
   *
   * 字段说明：
-  * - adc_data[4]：4 组电桥 ADC，每组保存 6 个原始 slot。
+  * - adc_data[4]：4 组电桥 ADC，每组保存 6 个原始 slot 及有效位。
   * - ppg_data[3]：MAX30101 解析值（Green/Red/IR），已右移对齐。
   * - imu_data[6]：LSM9DS1 原始补码（Gx,Gy,Gz,Ax,Ay,Az）。
   */
